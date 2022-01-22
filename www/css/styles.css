@@ -1,0 +1,89 @@
+h1, h2, h3 {
+    margin: 0;
+}
+
+body {
+    width: fit-content;
+    padding: 5px;
+    margin: auto;
+}
+
+
+body > h1#transpo-logo {
+    width: fit-content;
+}
+
+
+body > div#transpo-main {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    padding: 10px;
+    border: 1px solid;
+}
+
+
+form#upload-form {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+
+div#file-area {
+    height: 200px;
+    padding: 10px;
+    background-color: aliceblue;
+}
+
+div#file-area > input[type="file"] {
+    display: block;
+    margin: auto;
+}
+
+
+fieldset#time-limit-fields > div {
+    display: inline-block;
+}
+
+
+hr {
+    width: 90%;
+}
+
+
+fieldset.togglable-input {
+    overflow: hidden;
+}
+
+fieldset.togglable-field div {
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    height: 0;
+    margin-top: 0;
+    visibility: hidden;
+    opacity: 0%;
+    transition: all 0.1s;
+}
+
+fieldset.togglable-field div input#password-input {
+    flex-grow: 1;
+}
+
+fieldset.togglable-field input:checked ~ div {
+    height: 1.5em;
+    margin-top: 5px;
+    visibility: visible;
+    opacity: 100%;
+}
+
+
+div#uploaded-area {
+    width: 230px;
+    padding: 5px;
+    background-color: aliceblue;
+    flex-grow: 1;
+}
