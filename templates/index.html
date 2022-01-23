@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8"/>
+        <title>Transpo</title>
+        <link rel="stylesheet" href="css/styles.css"/>
+    </head>
+    <body>
+        <h1 id="transpo-logo">Transpo</h1>
+        <noscript>
+            Transpo works best with JavaScript enabled!
+        </noscript>
+        <div id="transpo-main" class="ui-frame">
+            <form id="upload-form" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
+                <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked style="display: none;"/>
+
+                <div id="file-area">
+                    <input name="Files" id="file-input" type="file" multiple/>
+                    <ul id="file-list" style="display: none;"></ul>
+                    <div id="file-area-footer" style="visibility: hidden;">
+                        <button type="button" id="clear-files-button">Remove All</button>
+                        <output id="upload-size-output"></output>
+                    </div>
+                    <div id="max-upload-size-warning" style="display: none;">
+                        &#x26A0;&#xFE0E; Warning: the maximum upload size is <span id="max-upload-size"></span> !
+                    </div>
+                </div>
+
+                <fieldset id="time-limit-fields">
+                    <legend>
+                        Expire after:
+                    </legend>
+                    <div>
+                        <label for="days-input">Days:</label>
+                        <input name="days" id="days-input" type="number" size="5" value="0" min="0" max="{{ max_days }}"/>
+                    </div>
+                    <div>
+                        <label for="hours-input">Hours:</label>
+                        <input name="hours" id="hours-input" type="number" size="5" value="0" min="0" max="{{ max_hours }}"/>
+                    </div>
+                    <div>
+                        <label for="minutes-input">Minutes:</label>
+                        <input name="minutes" id="minutes-input" type="number" size="5" value="30" min="0" max="{{ max_minutes }}"/>
+                    </div>
+                </fieldset>
+
+                <hr/>
+
+                <fieldset class="togglable-field">
+                    <input name="enable-max-downloads" id="enable-max-downloads-input" type="checkbox"/>
+                    <label for="enable-max-downloads-input">
+                        Enable Download Limit
+                    </label>
+                    <div>
+                        <label for="max-downloads">Expire after:</label>
+                        <input name="max-downloads" id="max-downloads-input" type="number" size="10" value="1" min="1"/>
+                        <span>downloads</span>
+                    </div>
+                </fieldset>
+
+                <hr/>
+
+                <fieldset class="togglable-field">
+                    <input name="enable-download-password" id="enable-password-input" type="checkbox">
+                    <label for="enable-password-input">
+                        Enable Download Password
+                    </label>
+                    <div>
+                        <label for="password-input">Password:</label>
+                        <input name="password" id="password-input" type="text"/>
+                    </div>
+                </fieldset>
+
+                <hr/>
+
+                <button id="upload-button">Upload</button>
+                <progress id="upload-progress" value="0"></progress>
+            </form>
+
+            <div id="uploaded-area" style="display: none">
+                <h2>Your Uploads</h2>
+                <ul id="uploaded-list"></ul>
+            </div>
+        </div>
+
+
+        <template id="file-list-item-template">
+            <li data-index="">
+                <button type="button" class="file-list-item-remove">×</button>
+                <span class="file-list-item-name"></span>
+                <span class="file-list-item-size"></span>
+            </li>
+        </template>
+
+        <script>
+            const maxUploadSize = {{ max_upload_size }};
+            document.getElementById("file-list").style.display = "";
+            document.getElementById("uploaded-area").style.display = "";
+            document.getElementById("server-side-processing-input").checked = false;
+        </script>
+
+        <script src="js/size_string.js"></script>
+        <script src="js/files.js"></script>
+    </body>
+</html>

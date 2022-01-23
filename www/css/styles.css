@@ -2,6 +2,10 @@ h1, h2, h3 {
     margin: 0;
 }
 
+* {
+    font-family: sans-serif;
+}
+
 body {
     width: fit-content;
     padding: 5px;
@@ -33,14 +37,52 @@ form#upload-form {
 
 
 div#file-area {
-    height: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
     padding: 10px;
     background-color: aliceblue;
 }
 
-div#file-area > input[type="file"] {
-    display: block;
+div#file-area > input#file-input {
     margin: auto;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+div#file-area > ul#file-list {
+    flex-grow: 1;
+    overflow-y: auto;
+    height: 200px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+div#file-area > ul#file-list > li {
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+}
+
+div#file-area > ul#file-list > li > span.file-list-item-name {
+    flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 0;
+}
+
+div#file-area > div#file-area-footer {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+div#file-area > div#max-upload-size-warning {
+    text-align: center;
+    background: #ffcb00;
 }
 
 
