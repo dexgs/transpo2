@@ -2,7 +2,7 @@ use std::default::Default;
 use std::iter::Iterator;
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TranspoConfig {
     pub max_upload_age_minutes: usize,
     pub max_upload_size_bytes: usize,
@@ -25,15 +25,16 @@ impl Default for TranspoConfig {
     }
 }
 
-impl<I> From<I> for TranspoConfig
-where I: Iterator<Item = String>
+impl<I, S> From<I> for TranspoConfig
+where I: Iterator<Item = S>,
+      S: AsRef<str>
 {
     fn from(args: I) -> Self {
         let mut config = Self::default();
         let mut args = args.peekable();
 
         while let Some(arg) = args.next() {
-            let field = match arg.as_str() {
+            let field = match arg.as_ref() {
                 "-a" => &mut config.max_upload_age_minutes,
                 "-u" => &mut config.max_upload_size_bytes,
                 "-s" => &mut config.max_storage_size_bytes,
@@ -41,11 +42,59 @@ where I: Iterator<Item = String>
                 _ => continue
             };
 
-            if let Some(parsed) = args.peek().and_then(|a| a.parse().ok()) {
+            if let Some(parsed) = args.peek().and_then(|a| a.as_ref().parse().ok()) {
                 *field = parsed;
             }
         }
 
         config
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use rand::Rng;
+    use crate::TranspoConfig;
+
+    fn parse_random<R>(mut rng: R, args: &mut Vec<String>)
+    where R: Rng
+    {
+        args.clear();
+        let mut expected_config = TranspoConfig::default();
+
+        if rng.gen() {
+            expected_config.max_upload_age_minutes = rng.gen();
+            args.push("-a".to_owned());
+            args.push(expected_config.max_upload_age_minutes.to_string());
+        }
+        if rng.gen() {
+            expected_config.max_upload_size_bytes = rng.gen();
+            args.push("-u".to_owned());
+            args.push(expected_config.max_upload_size_bytes.to_string());
+        }
+        if rng.gen() {
+            expected_config.max_storage_size_bytes = rng.gen();
+            args.push("-s".to_owned());
+            args.push(expected_config.max_storage_size_bytes.to_string());
+        }
+        if rng.gen() {
+            expected_config.port = rng.gen();
+            args.push("-p".to_owned());
+            args.push(expected_config.port.to_string());
+        }
+
+        let actual_config = TranspoConfig::from(args.into_iter());
+
+        assert_eq!(expected_config, actual_config);
+    }
+
+    #[test]
+    fn test_parsing() {
+        let mut rng = rand::thread_rng();
+        let mut args: Vec<String> = Vec::with_capacity(8);
+        for _ in 0..50 {
+            parse_random(&mut rng, &mut args);
+        }
     }
 }

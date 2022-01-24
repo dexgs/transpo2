@@ -28,7 +28,7 @@ impl From<&TranspoConfig> for IndexTemplate {
         } else {
             config.max_upload_age_minutes
         };
- 
+
         Self {
             max_days: max_days,
             max_hours: max_hours,

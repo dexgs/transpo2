@@ -24,5 +24,6 @@ fn main() {
                 .get("/", move |conn: Conn| async move { conn.render(index) })
                 .get("/js/*", files(crate_relative_path!("www/js")))
                 .get("/css/*", files(crate_relative_path!("www/css")))
+                .get("/dl/:file_id", |conn: Conn| async move { conn.ok("blah!") })
         );
 }
