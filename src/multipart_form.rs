@@ -7,8 +7,8 @@ const DOUBLE_NEWLINE: &'static [u8] = b"\n\n";
 
 pub enum ParseResult<'a> {
     // Contains ref to Content-Disposition string
-    NewValue(&'a str, &'a [u8]),
-    Continue(&'a [u8]),
+    NewValue(usize, &'a str, &'a [u8]),
+    Continue(usize, &'a [u8]),
     Finished,
     Error
 }
@@ -19,8 +19,8 @@ pub enum ParseResult<'a> {
 // Subsequent calls to this function MUST guarantee that `buf` begins where
 // parsing last ended.
 //
-// `boundary` is assumed to be prefixed with "--"
-pub fn parse<'a, B>(buf: &'a [u8], boundary: B) -> (usize, ParseResult<'a>)
+// `boundary` is assumed to be prefixed with "\n--"
+pub fn parse<'a, B>(buf: &'a [u8], boundary: B) -> ParseResult<'a>
 where B: AsRef<[u8]>
 {
     let boundary = boundary.as_ref();
@@ -29,7 +29,7 @@ where B: AsRef<[u8]>
         // This is either the end of the form or the start of a new form field
         if buf.starts_with(TERMINATOR) {
             // This is the end of the form
-            (0, ParseResult::Finished)
+            ParseResult::Finished
         } else if let Some((buf, cd_len)) = buf
             .strip_prefix(NEWLINE)
             .and_then(|buf| buf.strip_prefix(CD_PREFIX))
@@ -47,22 +47,22 @@ where B: AsRef<[u8]>
                         + cd_len
                         + DOUBLE_NEWLINE.len();
 
-                    (leading_len + value_len, ParseResult::NewValue(cd, &value[..value_len]))
+                    ParseResult::NewValue(leading_len + value_len, cd, &value[..value_len])
                 },
-                Err(_) => (0, ParseResult::Error)
+                Err(_) => ParseResult::Error
             }
         } else {
             // The form is improperly formatted
-            (0, ParseResult::Error)
+            ParseResult::Error
         }
     } else {
         // This is the continuation of the value of the previous field
         let value_len = find_value_len(buf, boundary);
-        (value_len, ParseResult::Continue(&buf[..value_len]))
+        ParseResult::Continue(value_len, &buf[..value_len])
     }
 }
 
-// Return the index of the first instance of s2 in s1, or None if there isn't any
+// Return the index of the first instance of s2 in s1
 fn find_subslice<T>(s1: &[T], s2: &[T]) -> Option<usize>
 where T: PartialEq
 {
@@ -124,18 +124,6 @@ where B1: AsRef<[u8]>,
 mod tests {
     use crate::multipart_form::*;
 
-    const FORM_BODY: &'static [u8] =
-b"--boundary
-Content-Disposition: form-data; name=\"field1\"
-
-value1
---boundary
-Content-Disposition: form-data; name=\"field2\"; filename=\"example.txt\"
-
-value2
---boundary--";
-
-
     #[test]
     fn test_find_subslice() {
         let s1 = vec![1, 2, 3, 3, 2, 5, 1];
@@ -154,5 +142,48 @@ value2
         assert_eq!(find_ending_subslice_of(s1, b"barnacle"), Some(3));
         assert_eq!(find_ending_subslice_of(s1, b"foobar"), Some(0));
         assert_eq!(find_ending_subslice_of(s1, b"foo"), None);
+    }
+
+    #[test]
+    fn test_parse() {
+        const FORM_BODY: &'static [u8] =
+b"
+--boundary
+Content-Disposition: form-data; name=\"field1\"
+
+value1
+--boundary
+Content-Disposition: form-data; name=\"field2\"; filename=\"example.txt\"
+
+value2
+--boundary--";
+
+        const BOUNDARY: &'static [u8] = b"\n--boundary";
+        const CD_1: &'static str = "form-data; name=\"field1\"";
+        const VALUE_1: &'static [u8] = b"value1";
+        const CD_2: &'static str = "form-data; name=\"field2\"; filename=\"example.txt\"";
+        const VALUE_2: &'static [u8] = b"value2";
+
+        let mut i = 0;
+        let mut value = 0;
+        loop {
+            match parse(&FORM_BODY[i..], BOUNDARY) {
+                ParseResult::NewValue(len, cd, val) => {
+                    i += len;
+
+                    if value == 0 {
+                        assert_eq!(cd, CD_1);
+                        assert_eq!(val, VALUE_1);
+                    } else {
+                        assert_eq!(cd, CD_2);
+                        assert_eq!(val, VALUE_2);
+                    }
+
+                    value += 1;
+                },
+                ParseResult::Continue(len, _val) => i += len,
+                ParseResult::Finished | ParseResult::Error => break
+            }
+        }
     }
 }
