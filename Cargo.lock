@@ -1535,6 +1535,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "askama",
+ "bytes",
  "rand",
  "rusqlite",
  "trillium",
