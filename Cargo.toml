@@ -14,7 +14,7 @@ trillium-askama = "0.3"
 askama = "0.11"
 rusqlite = "0.26"
 aes-gcm = "0.9"
+zip = "0.5"
 
 [dev-dependencies]
 rand = "0.8"
-zip = "0.5"
