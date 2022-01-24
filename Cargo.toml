@@ -12,7 +12,7 @@ trillium-router = "0.3"
 trillium-static = { version = "0.4", features = ["smol"] }
 trillium-askama = "0.3"
 askama = "0.11"
-diesel = { version = "1.4", features = ["postgres", "mysql", "sqlite"] }
+rusqlite = "0.26"
 aes-gcm = "0.9"
 
 [dev-dependencies]
