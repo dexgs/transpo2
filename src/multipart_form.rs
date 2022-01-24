@@ -1,6 +1,6 @@
 use std::cmp;
 
-const CD: &'static [u8] = b"Content-Disposition: ";
+const CD_PREFIX: &'static [u8] = b"Content-Disposition: ";
 const TERMINATOR: &'static [u8] = b"--";
 const NEWLINE: &'static [u8] = b"\n";
 const DOUBLE_NEWLINE: &'static [u8] = b"\n\n";
@@ -20,30 +20,45 @@ pub enum ParseResult<'a> {
 // parsing last ended.
 //
 // `boundary` is assumed to be prefixed with "--"
-pub fn parse<'a, B1, B2>(buf: B1, boundary: B2) -> ()//(usize, ParseResult<'a>)
-where B1: AsRef<[u8]> + 'a,
-      B2: AsRef<[u8]>
+pub fn parse<'a, B>(buf: &'a [u8], boundary: B) -> (usize, ParseResult<'a>)
+where B: AsRef<[u8]>
 {
-    let buf = buf.as_ref();
     let boundary = boundary.as_ref();
 
     if let Some(buf) = buf.strip_prefix(boundary) {
         // This is either the end of the form or the start of a new form field
         if buf.starts_with(TERMINATOR) {
             // This is the end of the form
-            // return (0, ParseType::Finished);
+            (0, ParseResult::Finished)
         } else if let Some((buf, cd_len)) = buf
             .strip_prefix(NEWLINE)
-            .and_then(|buf| buf.strip_prefix(CD))
+            .and_then(|buf| buf.strip_prefix(CD_PREFIX))
             .and_then(|buf| Some((buf, find_subslice(buf, DOUBLE_NEWLINE)?)))
         {
             // This is a new field in the form
+            match std::str::from_utf8(&buf[..cd_len]) {
+                Ok(cd) => {
+                    let value = &buf[(cd_len + 2)..];
+                    let value_len = find_value_len(value, boundary);
+                    let leading_len = 
+                        boundary.len()
+                        + NEWLINE.len() 
+                        + CD_PREFIX.len()
+                        + cd_len
+                        + DOUBLE_NEWLINE.len();
+
+                    (leading_len + value_len, ParseResult::NewValue(cd, &value[..value_len]))
+                },
+                Err(_) => (0, ParseResult::Error)
+            }
         } else {
             // The form is improperly formatted
-            // return (0, ParseType::Error);
+            (0, ParseResult::Error)
         }
     } else {
         // This is the continuation of the value of the previous field
+        let value_len = find_value_len(buf, boundary);
+        (value_len, ParseResult::Continue(&buf[..value_len]))
     }
 }
 
