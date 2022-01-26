@@ -4,6 +4,7 @@
         <meta charset="UTF-8"/>
         <title>Transpo</title>
         <link rel="stylesheet" href="css/styles.css"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
     <body>
         <h1 id="transpo-logo">Transpo</h1>
@@ -15,7 +16,7 @@
                 <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked style="display: none;"/>
 
                 <div id="file-area">
-                    <input name="Files" id="file-input" type="file" multiple/>
+                    <input name="files" id="file-input" type="file" multiple/>
                     <ul id="file-list" style="display: none;"></ul>
                     <div id="file-area-footer" style="visibility: hidden;">
                         <button type="button" id="clear-files-button">Remove All</button>
@@ -32,15 +33,15 @@
                     </legend>
                     <div>
                         <label for="days-input">Days:</label>
-                        <input name="days" id="days-input" type="number" size="5" value="0" min="0" max="{{ max_days }}"/>
+                        <input name="days" id="days-input" type="number" size="4" value="0" min="0" max="{{ max_days }}"/>
                     </div>
                     <div>
                         <label for="hours-input">Hours:</label>
-                        <input name="hours" id="hours-input" type="number" size="5" value="0" min="0" max="{{ max_hours }}"/>
+                        <input name="hours" id="hours-input" type="number" size="4" value="0" min="0" max="{{ max_hours }}"/>
                     </div>
                     <div>
                         <label for="minutes-input">Minutes:</label>
-                        <input name="minutes" id="minutes-input" type="number" size="5" value="30" min="0" max="{{ max_minutes }}"/>
+                        <input name="minutes" id="minutes-input" type="number" size="4" value="30" min="0" max="{{ max_minutes }}"/>
                     </div>
                 </fieldset>
 
@@ -63,11 +64,11 @@
                 <fieldset class="togglable-field">
                     <input name="enable-download-password" id="enable-password-input" type="checkbox">
                     <label for="enable-password-input">
-                        Enable Download Password
+                        Enable Password Protection
                     </label>
                     <div>
                         <label for="password-input">Password:</label>
-                        <input name="password" id="password-input" type="text"/>
+                        <input name="password" id="password-input" type="text" placeholder="This will be required to download your files"/>
                     </div>
                 </fieldset>
 
@@ -92,14 +93,17 @@
             </li>
         </template>
 
-        <script>
-            const maxUploadSize = {{ max_upload_size }};
-            document.getElementById("file-list").style.display = "";
-            document.getElementById("uploaded-area").style.display = "";
-            document.getElementById("server-side-processing-input").checked = false;
-        </script>
 
         <script src="js/size_string.js"></script>
         <script src="js/files.js"></script>
+
+        <script>
+            window.addEventListener("pageshow", () => {
+                maxUploadSize = {{ max_upload_size }};
+                document.getElementById("file-list").style.display = "";
+                document.getElementById("uploaded-area").style.display = "";
+                document.getElementById("server-side-processing-input").checked = false;
+            });
+        </script>
     </body>
 </html>

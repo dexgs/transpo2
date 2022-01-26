@@ -1,13 +1,15 @@
 use std::default::Default;
 use std::iter::Iterator;
+use std::path::PathBuf;
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TranspoConfig {
     pub max_upload_age_minutes: usize,
     pub max_upload_size_bytes: usize,
     pub max_storage_size_bytes: usize,
-    pub port: usize
+    pub port: usize,
+    pub storage_dir: PathBuf,
 }
 
 impl Default for TranspoConfig {
@@ -19,6 +21,8 @@ impl Default for TranspoConfig {
             max_upload_size_bytes: 5 * 1000 * 1000 * 1000,
             // 100gB
             max_storage_size_bytes: 100 * 1000 * 1000 * 1000,
+
+            storage_dir: PathBuf::from("./transpo_storage"),
 
             port: 8123
         }
@@ -39,6 +43,10 @@ where I: Iterator<Item = S>,
                 "-u" => &mut config.max_upload_size_bytes,
                 "-s" => &mut config.max_storage_size_bytes,
                 "-p" => &mut config.port,
+                "-d" => {
+                    config.storage_dir = PathBuf::from(arg.as_ref());
+                    continue;
+                },
                 _ => continue
             };
 
