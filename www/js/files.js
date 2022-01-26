@@ -1,5 +1,6 @@
-var filesToUpload = new Array();
-var uploadSize = 0;
+let filesToUpload = new Array();
+let uploadSize = 0;
+let maxUploadSize = 0;
 
 const fileArea = document.getElementById("file-area");
 const fileList = document.getElementById("file-list");
@@ -16,8 +17,6 @@ fileInput.addEventListener("input", fileInputEvent);
 clearFilesButton.addEventListener("click", clearAllFiles);
 document.addEventListener("dragover", e => e.preventDefault());
 document.addEventListener("drop", fileDropEvent);
-
-maxUploadSizeText.innerHTML = sizeString(maxUploadSize);
 
 
 function addFilesToUpload(files) {
@@ -61,7 +60,9 @@ function updateFileList() {
     files.forEach((file, index) => {
         let listItem = fileListItemTemplate.content.cloneNode(true).firstElementChild;
         listItem.dataset.index = index;
-        listItem.querySelector("span.file-list-item-name").innerHTML = file.name;
+        let itemName = listItem.querySelector("span.file-list-item-name");
+        itemName.innerHTML = file.name;
+        itemName.title = file.name;
         listItem.querySelector("span.file-list-item-size").innerHTML = sizeString(file.size);
         listItem.querySelector("button.file-list-item-remove")
             .addEventListener("click", () => {fileRemoveEvent(index)});
@@ -77,6 +78,8 @@ function updateFileList() {
     }
 
     if (uploadSize > maxUploadSize) {
+        // Make sure the max upload size text is correct
+        maxUploadSizeText.innerHTML = sizeString(maxUploadSize);
         maxUploadSizeWarning.style.display = "";
     } else {
         maxUploadSizeWarning.style.display = "none";
@@ -116,3 +119,9 @@ function fileDropEvent(e) {
         updateFileList();
     }
 }
+
+
+window.addEventListener("pageshow", () => {
+    // Make sure the file input contains the contents of filesToUpload
+    addFilesToUpload([]);
+});
