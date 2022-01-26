@@ -39,7 +39,9 @@ where B: AsRef<[u8]>
             .and_then(|(buf, cd_len)| {
                 let after_cd = &buf[(cd_len + NEWLINE.len())..];
                 match after_cd.strip_prefix(CT_PREFIX) {
-                    Some(after_cd) => Some((buf, cd_len, true, find_subslice(after_cd, NEWLINE, NEWLINE_BYTE_MAP)?)),
+                    Some(after_cd) => Some((
+                            buf, cd_len, true,
+                            find_subslice(after_cd, NEWLINE, NEWLINE_BYTE_MAP)?)),
                     None => Some((buf, cd_len, false, 0))
                 }
             })
