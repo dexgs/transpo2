@@ -22,7 +22,7 @@ pub enum ParseResult<'a> {
 // Subsequent calls to this function MUST guarantee that `buf` begins where
 // parsing last ended.
 //
-// `boundary` is assumed to be prefixed with "\n--"
+// `boundary` is assumed to be prefixed with "\r\n--"
 pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[bool]) -> ParseResult<'a>
 where B: AsRef<[u8]>
 {
