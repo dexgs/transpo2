@@ -2,9 +2,9 @@ use std::{cmp, str};
 
 const CD_PREFIX: &'static [u8] = b"Content-Disposition: ";
 const CT_PREFIX: &'static [u8] = b"Content-Type: ";
-pub const TERMINATOR: &'static [u8] = b"--"; // Come with me if you want to live.
-pub const NEWLINE: &'static [u8] = b"\r\n";
-const DOUBLE_NEWLINE: &'static [u8] = b"\r\n\r\n";
+const TERMINATOR: &'static [u8] = b"--"; // Come with me if you want to live.
+const NEWLINE: &'static [u8] = b"\r\n";
+// const DOUBLE_NEWLINE: &'static [u8] = b"\r\n\r\n";
 const NEWLINE_BYTE_MAP: &'static [bool] = &newline_byte_map();
 
 pub enum ParseResult<'a> {
@@ -49,10 +49,8 @@ where B: AsRef<[u8]>
             // This is a new field in the form
 
             // New fields always have a Content-Disposition
-            let (cd_str, cd_total_len) = {
-                let len = CD_PREFIX.len() + cd_len + NEWLINE.len();
-                (str::from_utf8(&buf[..cd_len]), len)
-            };
+            let cd_str = str::from_utf8(&buf[..cd_len]);
+            let cd_total_len = CD_PREFIX.len() + cd_len + NEWLINE.len();
 
             // New fields do *not* always have a Content-Type
             //
@@ -60,11 +58,10 @@ where B: AsRef<[u8]>
             // of CD_PREFIX which is stripped off the value of `buf` in this
             // scope!
             let (ct_str, ct_total_len) = if has_ct {
-                let len = CT_PREFIX.len() + ct_len + NEWLINE.len();
-                // Length of the contents of `buf` that
-                // come before the value of Content-Type
+                let ct_total_len = CT_PREFIX.len() + ct_len + NEWLINE.len();
+                // Length of the contents of buf that come before the content type
                 let before_len = cd_len + NEWLINE.len() + CT_PREFIX.len();
-                (str::from_utf8(&buf[before_len..][..ct_len]), len)
+                (str::from_utf8(&buf[before_len..][..ct_len]), ct_total_len)
             } else {
                 // Even if there's no Content-Type, there is still a blank line
                 (Ok(""), NEWLINE.len())

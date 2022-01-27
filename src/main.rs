@@ -33,7 +33,7 @@ fn main() {
                 .post("/upload", move |conn: Conn| {
                     let accessors = accessors.clone();
                     async move {
-                        upload::handle(conn, accessors).await
+                        upload::handle(conn, config.max_upload_size_bytes, accessors).await
                     }
                 })
                 //.get("/dl/:file_id")
