@@ -33,7 +33,7 @@
                     </legend>
                     <div>
                         <label for="days-input">Days:</label>
-                        <input name="days" id="days-input" type="number" size="4" value="0" min="0" max="{{ max_days }}"/>
+                        <input name="days" id="days-input" type="number" size="5" value="0" min="0" max="{{ max_days }}"/>
                     </div>
                     <div>
                         <label for="hours-input">Hours:</label>
@@ -62,13 +62,13 @@
                 <hr/>
 
                 <fieldset class="togglable-field">
-                    <input name="enable-download-password" id="enable-password-input" type="checkbox">
+                    <input name="enable-password" id="enable-password-input" type="checkbox">
                     <label for="enable-password-input">
                         Enable Password Protection
                     </label>
                     <div>
                         <label for="password-input">Password:</label>
-                        <input name="password" id="password-input" type="text" placeholder="This will be required to download your files"/>
+                        <input name="password" id="password-input" type="text" placeholder="This will be needed to access your files"/>
                     </div>
                 </fieldset>
 
