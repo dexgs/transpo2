@@ -1,6 +1,7 @@
 use std::default::Default;
 use std::iter::Iterator;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -9,11 +10,14 @@ pub struct TranspoConfig {
     pub max_upload_size_bytes: usize,
     pub max_storage_size_bytes: usize,
     pub port: usize,
-    pub storage_dir: PathBuf,
+    pub storage_dir: Arc<PathBuf>,
+    pub db_url: Arc<String>
 }
 
 impl Default for TranspoConfig {
     fn default() -> Self {
+        let storage_dir = PathBuf::from("./transpo_storage");
+
         TranspoConfig {
             // 1 Week
             max_upload_age_minutes: 7 * 24 * 60,
@@ -22,31 +26,64 @@ impl Default for TranspoConfig {
             // 100gB
             max_storage_size_bytes: 100 * 1000 * 1000 * 1000,
 
-            storage_dir: PathBuf::from("./transpo_storage"),
+            port: 8123,
 
-            port: 8123
+            storage_dir: Arc::new(PathBuf::from("./transpo_storage")),
+
+            db_url: Arc::new("./transpo_storage/db.sqlite".to_string()),
         }
     }
 }
 
-impl<I, S> From<I> for TranspoConfig
-where I: Iterator<Item = S>,
-      S: AsRef<str>
-{
-    fn from(args: I) -> Self {
-        let mut config = Self::default();
+impl TranspoConfig {
+    pub fn parse_vars<I, S1, S2>(&mut self, vars: I)
+    where I: Iterator<Item = (S1, S2)>,
+          S1: AsRef<str>,
+          S2: AsRef<str>
+    {
+        for (key, val) in vars {
+            let field = match key.as_ref() {
+                "TRANSPO_MAX_UPLOAD_AGE_MINUTES" => &mut self.max_upload_age_minutes,
+                "TRANSPO_MAX_UPLOAD_SIZE_BYTES" => &mut self.max_upload_size_bytes,
+                "TRANSPO_MAX_STORAGE_SIZE_BYTES" => &mut self.max_storage_size_bytes,
+                "TRANSPO_PORT" => &mut self.port,
+                "TRANSPO_STORAGE_DIRECTORY" => {
+                    self.storage_dir = Arc::new(PathBuf::from(val.as_ref()));
+                    continue;
+                },
+                "TRANSPO_DATABASE_URL" => {
+                    self.db_url = Arc::new(val.as_ref().to_string());
+                    continue;
+                },
+                _ => continue
+            };
+
+            if let Ok(parsed) = val.as_ref().parse() {
+                *field = parsed;
+            }
+        }
+    }
+
+    pub fn parse_args<I, S>(&mut self, args: I)
+    where I: Iterator<Item = S>,
+          S: AsRef<str>
+    {
         let mut args = args.peekable();
 
         while let Some(arg) = args.next() {
             let field = match arg.as_ref() {
-                "-a" => &mut config.max_upload_age_minutes,
-                "-u" => &mut config.max_upload_size_bytes,
-                "-s" => &mut config.max_storage_size_bytes,
-                "-p" => &mut config.port,
+                "-a" => &mut self.max_upload_age_minutes,
+                "-u" => &mut self.max_upload_size_bytes,
+                "-s" => &mut self.max_storage_size_bytes,
+                "-p" => &mut self.port,
                 "-d" => {
-                    config.storage_dir = PathBuf::from(arg.as_ref());
+                    self.storage_dir = Arc::new(PathBuf::from(arg.as_ref()));
                     continue;
                 },
+                "-D" => {
+                    self.db_url = Arc::new(arg.as_ref().to_string());
+                    continue;
+                }
                 _ => continue
             };
 
@@ -54,11 +91,8 @@ where I: Iterator<Item = S>,
                 *field = parsed;
             }
         }
-
-        config
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -92,7 +126,8 @@ mod tests {
             args.push(expected_config.port.to_string());
         }
 
-        let actual_config = TranspoConfig::from(args.into_iter());
+        let mut actual_config = TranspoConfig::default();
+        actual_config.parse_args(args.into_iter());
 
         assert_eq!(expected_config, actual_config);
     }
