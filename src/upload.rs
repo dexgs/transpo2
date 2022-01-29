@@ -1,7 +1,10 @@
 use crate::concurrency::Accessors;
 use crate::multipart_form::{self, *};
+use std::sync::Arc;
+use std::path::PathBuf;
 use trillium::Conn;
 use smol::prelude::*;
+use diesel::prelude::*;
 
 const BOUNDARY_MAX_LEN: usize = 70;
 const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
@@ -147,7 +150,11 @@ impl UploadForm {
 }
 
 
-pub async fn handle(mut conn: Conn, max_upload_size: usize, accessors: Accessors) -> Conn {
+pub async fn handle<C>(
+    mut conn: Conn, max_upload_size: usize, accessors: Accessors,
+    connection: C, storage_path: Arc<PathBuf>) -> Conn
+where C: Connection
+{
     // Get the boundary of the multi-part form
     let boundary = match get_boundary(&conn) {
         Some(boundary) => boundary,
@@ -261,7 +268,8 @@ pub async fn handle(mut conn: Conn, max_upload_size: usize, accessors: Accessors
                 ParseResult::Finished => {
                     // parse the value of the previous field
                     if field_type != FormField::Files && field_type != FormField::Invalid {
-                        let parse_field_success = form.parse_field(&field_type, &field_buf[..field_write_start]);
+                        let parse_field_success =
+                            form.parse_field(&field_type, &field_buf[..field_write_start]);
                         if !parse_field_success {
                             break 'outer;
                         }
@@ -282,7 +290,7 @@ pub async fn handle(mut conn: Conn, max_upload_size: usize, accessors: Accessors
     }
 
     //println!("\nUPLOAD SIZE: {}\n", total_bytes);
-    //println!("{:?}", form);
+    println!("{:?}", form);
 
     if upload_success {
     } else {
