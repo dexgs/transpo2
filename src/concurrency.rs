@@ -13,11 +13,21 @@ impl Accessors {
         Self (Arc::new(Mutex::new(HashMap::new())))
     }
 
-    pub fn increment(&self, file: String) {
+    // Increment the count for the given file. If `only_if_first` is true, only
+    // increment if the count for `file` is not defined or 0. Returns whether or
+    // not the count was incremented.
+    pub fn increment(&self, file: String, only_if_first: bool) -> bool {
         let mut map = self.0.lock().unwrap();
         match map.get_mut(&file) {
-            Some(rc) => *rc += 1,
-            None => { map.insert(file, 1); }
+            Some(rc) => {
+                if only_if_first && *rc > 0 {
+                    false
+                } else {
+                    *rc += 1;
+                    true
+                }
+            },
+            None => { map.insert(file, 1); true }
         }
     }
 
@@ -37,5 +47,12 @@ impl Accessors {
         }
 
         zero_accessors
+    }
+
+    pub fn num_accessors(&self, file: &str) -> usize {
+        match self.0.lock().unwrap().get(file) {
+            Some(num) => *num,
+            None => 0
+        }
     }
 }
