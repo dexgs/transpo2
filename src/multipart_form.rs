@@ -1,7 +1,9 @@
 use std::{cmp, str};
 
 const CD_PREFIX: &'static [u8] = b"Content-Disposition: ";
+const CD_PREFIX_BYTE_MAP: &'static [bool] = &cd_prefix_byte_map();
 const CT_PREFIX: &'static [u8] = b"Content-Type: ";
+const CT_PREFIX_BYTE_MAP: &'static [bool] = &ct_prefix_byte_map();
 const TERMINATOR: &'static [u8] = b"--"; // Come with me if you want to live.
 const NEWLINE: &'static [u8] = b"\r\n";
 // const DOUBLE_NEWLINE: &'static [u8] = b"\r\n\r\n";
@@ -10,8 +12,9 @@ const NEWLINE_BYTE_MAP: &'static [bool] = &newline_byte_map();
 pub enum ParseResult<'a> {
     //       bytes  c-disp   c-type   value
     NewValue(usize, &'a str, &'a str, &'a [u8]),
-    //       bytes  value
-    Continue(usize, &'a [u8]),
+    //       value
+    Continue(&'a [u8]),
+    NeedMoreData,
     Finished,
     Error
 }
@@ -33,23 +36,46 @@ where B: AsRef<[u8]>
         if buf.starts_with(TERMINATOR) {
             // This is the end of the form
             ParseResult::Finished
-        } else if let Some((buf, cd_len, has_ct, ct_len)) = buf.strip_prefix(NEWLINE)
-            .and_then(|buf| buf.strip_prefix(CD_PREFIX))
-            .and_then(|buf| Some((buf, find_subslice(buf, NEWLINE, NEWLINE_BYTE_MAP)?)))
-            .and_then(|(buf, cd_len)| {
-                let after_cd = &buf[(cd_len + NEWLINE.len())..];
-                match after_cd.strip_prefix(CT_PREFIX) {
-                    Some(after_cd) => Some((
-                            buf, cd_len, true,
-                            find_subslice(after_cd, NEWLINE, NEWLINE_BYTE_MAP)?)),
-                    None => Some((buf, cd_len, false, 0))
-                }
-            })
-        {
+        } else {
+            // Extract the content-disposition and content-type from the value,
+            // or return early if the form is malformed or potentially cut off
+            // by the end of the buffer, requiring another read.
+            let parse_result = try_strip_prefix(buf, NEWLINE, NEWLINE_BYTE_MAP)
+                .and_then(|buf| try_strip_prefix(buf, CD_PREFIX, CD_PREFIX_BYTE_MAP))
+                .and_then(|buf| Ok((buf, try_find_subslice(buf, NEWLINE, NEWLINE_BYTE_MAP)?)))
+                .and_then(|(buf, cd_len)| {
+                    let after_cd = &buf[(cd_len + NEWLINE.len())..];
+                    match try_strip_prefix(after_cd, CT_PREFIX, CT_PREFIX_BYTE_MAP) {
+                        Err(ParseResult::NeedMoreData) => {
+                            // There is possibly an incomplete Content-Type prefix
+                            return Err(ParseResult::NeedMoreData)
+                        },
+                        Err(ParseResult::Error) => {
+                            // There is no Content-Type
+                            Ok((buf, cd_len, false, 0))
+                        },
+                        Ok(after_cd) => {
+                            // There is a Content-Type
+                            let ct_len = try_find_subslice(after_cd, NEWLINE, NEWLINE_BYTE_MAP)?;
+                            Ok((buf, cd_len, true, ct_len))
+                        }
+                        // This case will not happen (see `try_strip_prefix`).
+                        // It is only here to appease the compiler.
+                        _ => Err(ParseResult::Error)
+                    }});
+
+            let (buf, cd_len, has_ct, ct_len) = match parse_result {
+                Ok(values) => values,
+                Err(result) => return result
+            };
+
             // This is a new field in the form
 
             // New fields always have a Content-Disposition
-            let cd_str = str::from_utf8(&buf[..cd_len]);
+            let cd_str = match str::from_utf8(&buf[..cd_len]) {
+                Ok(cd_str) => cd_str,
+                Err(_) => return ParseResult::Error
+            };
             let cd_total_len = CD_PREFIX.len() + cd_len + NEWLINE.len();
 
             // New fields do *not* always have a Content-Type
@@ -58,37 +84,58 @@ where B: AsRef<[u8]>
             // of CD_PREFIX which is stripped off the value of `buf` in this
             // scope!
             let (ct_str, ct_total_len) = if has_ct {
-                let ct_total_len = CT_PREFIX.len() + ct_len + NEWLINE.len();
+                let ct_total_len = CT_PREFIX.len() + ct_len + 2 * NEWLINE.len();
                 // Length of the contents of buf that come before the content type
                 let before_len = cd_len + NEWLINE.len() + CT_PREFIX.len();
-                (str::from_utf8(&buf[before_len..][..ct_len]), ct_total_len)
+                let ct_str = match str::from_utf8(&buf[before_len..][..ct_len]) {
+                    Ok(ct_str) => ct_str,
+                    Err(_) => return ParseResult::Error
+                };
+                (ct_str, ct_total_len)
             } else {
-                // Even if there's no Content-Type, there is still a blank line
-                (Ok(""), NEWLINE.len())
+                // When there is no Content-Type, there is still a blank line
+                ("", NEWLINE.len())
             };
 
-            match cd_str.and_then(|cd| ct_str.and_then(|ct| Ok((cd, ct)))) {
-                Ok((cd, ct)) => {
-                    let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
-                    let value_len = find_value_len(value, boundary, boundary_byte_map);
+            let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
+            let value_len = find_value_len(value, boundary, boundary_byte_map);
 
-                    let leading_len = boundary.len()
-                        + NEWLINE.len()
-                        + cd_total_len
-                        + ct_total_len;
+            let leading_len = boundary.len()
+                + NEWLINE.len()
+                + cd_total_len
+                + ct_total_len;
 
-                    ParseResult::NewValue(leading_len + value_len, cd, ct, &value[..value_len])
-                },
-                Err(_) => ParseResult::Error
-            }
-        } else {
-            // The form is improperly formatted
-            ParseResult::Error
+            ParseResult::NewValue(leading_len + value_len, cd_str, ct_str, &value[..value_len])
         }
     } else {
         // This is the continuation of the value of the previous field
         let value_len = find_value_len(buf, boundary, boundary_byte_map);
-        ParseResult::Continue(value_len, &buf[..value_len])
+        ParseResult::Continue(&buf[..value_len])
+    }
+}
+
+// Strip the given prefix off of buf. If buf does not start with the given
+// prefix, return a parse result of either NeedMoreData if buf could possibly
+// start with prefix if it were longer or Error if it does not and cannot
+fn try_strip_prefix<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool]) -> Result<&'a [u8], ParseResult<'a>> {
+    match buf.strip_prefix(prefix) {
+        Some(buf) => Ok(buf),
+        None => {
+            if buf.len() >= prefix.len() {
+                Err(ParseResult::Error)
+            } else if ends_with_subslice(buf, prefix, prefix_byte_map) {
+                Err(ParseResult::NeedMoreData)
+            } else {
+                Err(ParseResult::Error)
+            }
+        }
+    }
+}
+
+fn try_find_subslice<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool]) -> Result<usize, ParseResult<'a>> {
+    match find_subslice(buf, prefix, prefix_byte_map) {
+        Some(index) => Ok(index),
+        None => Err(ParseResult::NeedMoreData)
     }
 }
 
@@ -133,6 +180,11 @@ fn find_ending_subslice_of(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option
     None
 }
 
+// Return whether or not s1 ends with a subslice of s2
+fn ends_with_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> bool {
+    find_ending_subslice_of(s1, s2, s2_byte_map).is_some()
+}
+
 // Return the possible ending for the current value, either because the
 // boundary is present in the current buffer, or a subslice of it is and it's
 // possible that it will be completed on the next parse. If the value is not
@@ -171,6 +223,55 @@ const fn newline_byte_map() -> [bool; u8::MAX as usize + 1] {
     map
 }
 
+// i really wish rust would let you iterate over fixed-size data in constant
+// functions. that would be really, really, really, really great.
+
+// So we can have CD_PREFIX_BYTE_MAP as a constant
+const fn cd_prefix_byte_map() -> [bool; u8::MAX as usize + 1] {
+    let mut map = [false; u8::MAX as usize + 1];
+    map[b'C' as usize] = true;
+    map[b'o' as usize] = true;
+    map[b'n' as usize] = true;
+    map[b't' as usize] = true;
+    map[b'e' as usize] = true;
+    map[b'n' as usize] = true;
+    map[b't' as usize] = true;
+    map[b'-' as usize] = true;
+    map[b'D' as usize] = true;
+    map[b'i' as usize] = true;
+    map[b's' as usize] = true;
+    map[b'p' as usize] = true;
+    map[b'o' as usize] = true;
+    map[b's' as usize] = true;
+    map[b'i' as usize] = true;
+    map[b't' as usize] = true;
+    map[b'i' as usize] = true;
+    map[b'o' as usize] = true;
+    map[b'n' as usize] = true;
+    map[b':' as usize] = true;
+    map[b' ' as usize] = true;
+    map
+}
+
+// So we can have CT_PREFIX_BYTE_MAP as a constant
+const fn ct_prefix_byte_map() -> [bool; u8::MAX as usize + 1] {
+    let mut map = [false; u8::MAX as usize + 1];
+    map[b'C' as usize] = true;
+    map[b'o' as usize] = true;
+    map[b'n' as usize] = true;
+    map[b't' as usize] = true;
+    map[b'e' as usize] = true;
+    map[b'n' as usize] = true;
+    map[b't' as usize] = true;
+    map[b'-' as usize] = true;
+    map[b'T' as usize] = true;
+    map[b'y' as usize] = true;
+    map[b'p' as usize] = true;
+    map[b'e' as usize] = true;
+    map[b':' as usize] = true;
+    map[b' ' as usize] = true;
+    map
+}
 
 #[cfg(test)]
 mod tests {
@@ -234,8 +335,8 @@ value2\r
 
                     value += 1;
                 },
-                ParseResult::Continue(len, _val) => i += len,
-                ParseResult::Finished | ParseResult::Error => break
+                ParseResult::Continue(val) => i += val.len(),
+                ParseResult::Finished | ParseResult::Error | ParseResult::NeedMoreData => break
             }
         }
     }

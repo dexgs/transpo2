@@ -3,13 +3,16 @@ mod templates;
 mod multipart_form;
 mod concurrency;
 mod upload;
-mod random_string;
+mod random_bytes;
 mod b64;
+mod files;
+mod constants;
 
 use config::*;
 use templates::*;
 
 use std::env;
+use std::fs;
 use trillium::Conn;
 use trillium_router::Router;
 use trillium_askama::AskamaConnExt;
@@ -21,6 +24,9 @@ fn main() {
     config.parse_vars(env::vars());
     config.parse_args(env::args());
     println!("Running with: {:?}", &config);
+
+    fs::create_dir_all(&*config.storage_dir)
+        .expect("Creating storage directory");
 
     if config.db_url.starts_with("mysql://") {
         #[cfg(feature = "mysql")]

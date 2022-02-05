@@ -7,23 +7,31 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
     <body>
-        <h1 id="transpo-logo">Transpo</h1>
+        <span id="transpo-header">
+            <h1 id="transpo-logo">Transpo</h1>
+        </span>
         <noscript>
             Transpo works best with JavaScript enabled!
         </noscript>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
-                <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked style="display: none;"/>
+                <div style="display: none;">
+                    <i>
+                        This checkbox indicated to the server whether or not the
+                        it will be expected to encrypt + compress uploads. If you
+                        are seeing this in your browser right now, please <b>don't</b>
+                        change the value of this checkbox:
+                    </i>
+                    <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked/>
+                    <hr/>
+                </div>
 
                 <div id="file-area">
-                    <input name="files" id="file-input" type="file" multiple/>
-                    <ul id="file-list" style="display: none;"></ul>
-                    <div id="file-area-footer" style="visibility: hidden;">
+                    <input name="files" id="file-input" type="file"/>
+                    <ul id="file-list" style="display: none"></ul>
+                    <div id="file-area-footer" style="visibility: hidden">
                         <button type="button" id="clear-files-button">Remove All</button>
                         <output id="upload-size-output"></output>
-                    </div>
-                    <div id="max-upload-size-warning" style="display: none;">
-                        &#x26A0;&#xFE0E; Warning: the maximum upload size is <span id="max-upload-size"></span> !
                     </div>
                 </div>
 
@@ -85,12 +93,18 @@
         </div>
 
 
-        <template id="file-list-item-template">
+        <template id="file-list-item-template" style="display: none">
             <li data-index="">
                 <button type="button" class="file-list-item-remove">×</button>
                 <span class="file-list-item-name"></span>
                 <span class="file-list-item-size"></span>
             </li>
+        </template>
+
+        <template id="max-upload-size-warning-template" style="display: none">
+            <div class="max-upload-size-warning">
+                <b>&#x26A0;&#xFE0E; Warning:</b> the maximum upload size is <output></output> !
+            </div>
         </template>
 
 
@@ -103,6 +117,7 @@
                 document.getElementById("file-list").style.display = "";
                 document.getElementById("uploaded-area").style.display = "";
                 document.getElementById("server-side-processing-input").checked = false;
+                document.getElementById("file-input").multiple = true;
             });
         </script>
     </body>

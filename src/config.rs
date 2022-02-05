@@ -11,7 +11,7 @@ pub struct TranspoConfig {
     pub max_storage_size_bytes: usize,
     pub port: usize,
     pub storage_dir: Arc<PathBuf>,
-    pub db_url: Arc<String>
+    pub db_url: Arc<String>,
 }
 
 impl Default for TranspoConfig {
@@ -94,6 +94,7 @@ impl TranspoConfig {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use rand::Rng;
@@ -141,3 +142,4 @@ mod tests {
         }
     }
 }
+*/

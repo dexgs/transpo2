@@ -14,13 +14,14 @@ body {
 }
 
 
-body > h1#transpo-logo {
+h1#transpo-logo {
     width: -moz-fit-content;
     width: fit-content;
+    display: inline-block;
 }
 
 
-body > div#transpo-main {
+div#transpo-main {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -83,14 +84,19 @@ div#file-area > div#file-area-footer {
     justify-content: space-between;
 }
 
-div#file-area > div#max-upload-size-warning {
+div#file-area > div.max-upload-size-warning {
     text-align: center;
     background: #ffcb00;
 }
 
 
 fieldset#time-limit-fields {
+    word-spacing: 2px;
     text-align: center;
+}
+
+fieldset#time-limit-fields > legend {
+    word-spacing: initial;
 }
 
 fieldset#time-limit-fields > div {

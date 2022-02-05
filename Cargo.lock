@@ -1636,6 +1636,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "askama",
+ "blocking",
  "diesel",
  "rand",
  "sha2",

@@ -1,14 +1,21 @@
 use crate::concurrency::Accessors;
 use crate::multipart_form::{self, *};
+use crate::random_bytes::*;
+use crate::b64;
+use crate::files::*;
+use crate::constants::*;
+use std::fs;
+use std::str;
+use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
 use std::path::PathBuf;
 use trillium::Conn;
 use smol::prelude::*;
+use blocking::unblock;
 use diesel::prelude::*;
 
-const BOUNDARY_MAX_LEN: usize = 70;
-const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
+const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
 // Content-Disposition for valid form fields
 const SERVER_SIDE_PROCESSING_CD: &'static str = "form-data; name=\"server-side-processing\"";
@@ -161,24 +168,44 @@ where C: Connection
         None => return error_400(conn)
     };
     let boundary = format!("\r\n--{}", boundary);
-    if boundary.len() > BOUNDARY_MAX_LEN
+    if boundary.len() > MAX_FORM_BOUNDARY_LENGTH
     || !boundary.starts_with(EXPECTED_BOUNDARY_START)
     {
         // This is unlikely to happen unless someone is trying to abuse the
-        // slowest path in the parser, a long boundary that contains ever
+        // slowest path in the parser: a long boundary that contains every
         // possible byte value.
         return error_400(conn);
     }
     let boundary_byte_map = byte_map(boundary.as_bytes());
 
-    let mut req_body = conn.request_body().await;
+    let (upload_id, upload_dir) = {
+        let accessors = accessors.clone();
+        unblock(move || loop {
+            if let Ok(id) = str::from_utf8(&b64::base64_encode(&random_bytes(6))) {
+                let id = id.to_owned();
+                if accessors.increment(id.clone(), true) {
+                    let dir = storage_path.join(&id);
+                    if fs::create_dir_all(&dir).is_ok() {
+                        accessors.decrement(&id);
+                        break (id, dir);
+                    }
+                }
+            }
+        })
+    }.await;
+    let upload_path = upload_dir.join("upload");
+
+    let mut file_writer = Writer::None;
+    let mut key: Option<Vec<u8>> = None;
+    let mut file_name: Option<Vec<u8>> = None;
+    let mut mime_type: Option<Vec<u8>> = None;
 
     // Form fields
     let mut form = UploadForm::new();
 
     let mut upload_success = false;
-
-    let mut buf = [0; 5120];
+    let mut buf = [0; FORM_READ_BUFFER_SIZE];
+    let mut req_body = conn.request_body().await;
     // Make the first boundary start with a newline to simplify parsing
     (&mut buf[..2]).copy_from_slice(b"\r\n");
     let mut total_bytes = 0;
@@ -187,7 +214,7 @@ where C: Connection
     let mut field_type = FormField::Invalid;
     // Form fields other than files are expected to fit in this buffer. If they
     // do not, error 400 will be returned.
-    let mut field_buf = [0; 512];
+    let mut field_buf = [0; FORM_FIELD_BUFFER_SIZE];
     let mut field_write_start = 0;
 
     'outer: while let Ok(bytes_read) = req_body.read(&mut buf[read_start..]).await {
@@ -202,6 +229,9 @@ where C: Connection
             break;
         }
 
+        // Make sure buf does not contain data from the previous read
+        let buf = &mut buf[..(bytes_read + read_start)];
+
         // Parse over the buffer until either parsing ends, or we run out of data
         // i.e. we hit either the end of the buffer or a string of bytes that may
         // or may not be a boundary and we can't be sure until we read more data
@@ -211,15 +241,14 @@ where C: Connection
                 &buf[parse_start..], &boundary, &boundary_byte_map);
             match parse_result {
                 // The start of a new field in the form
-                ParseResult::NewValue(b, cd, _ct, val) => {
+                ParseResult::NewValue(b, cd, ct, val) => {
                     parse_start += b;
-                    //println!("\nContent-Disposition: `{}`\nContent-Type: `{}`", cd, ct);
 
                     // parse the value of the previous field
                     if field_type != FormField::Files && field_type != FormField::Invalid {
-                        let parse_field_success =
-                            form.parse_field(&field_type, &field_buf[..field_write_start]);
-                        if !parse_field_success { break 'outer; }
+                        if !form.parse_field(&field_type, &field_buf[..field_write_start]) {
+                            break 'outer;
+                        }
                     }
 
                     // handle the new field
@@ -227,7 +256,24 @@ where C: Connection
                     match new_field_type {
                         FormField::Invalid => break 'outer,
                         FormField::Files => {
-                            // handle files
+                            if file_writer.is_none() {
+                                let server_side_processing = match form.server_side_processing {
+                                    None | Some(false) => false,
+                                    Some(true) => true
+                                };
+
+                                match handle_file_start(cd, ct, val, &upload_path, server_side_processing).await {
+                                    Ok((w, k, f, m)) => {
+                                        file_writer = w;
+                                        key = k;
+                                        file_name = f;
+                                        mime_type = m;
+                                    },
+                                    Err(_) => break 'outer
+                                }
+                            } else {
+                                break 'outer;
+                            }
                         },
                         _ => {
                             if form.is_valid_field(&new_field_type)
@@ -245,12 +291,22 @@ where C: Connection
                     field_type = new_field_type;
                 },
                 // The continuation of the value of the previous field
-                ParseResult::Continue(b, val) => {
-                    parse_start += b;
+                ParseResult::Continue(val) => {
+                    parse_start += val.len();
 
                     match field_type {
+                        FormField::Invalid => break 'outer,
                         FormField::Files => {
                             // handle files
+                            let write_result = match &mut file_writer {
+                                Writer::Basic(writer) => write(writer, val).await,
+                                Writer::Encrypted(writer) => write(writer, val).await,
+                                Writer::None => break 'outer
+                            };
+
+                            if write_result.is_err() {
+                                break 'outer;
+                            }
                         },
                         _ => {
                             if field_write_start + val.len() <= field_buf.len() {
@@ -268,18 +324,27 @@ where C: Connection
                 ParseResult::Finished => {
                     // parse the value of the previous field
                     if field_type != FormField::Files && field_type != FormField::Invalid {
-                        let parse_field_success =
-                            form.parse_field(&field_type, &field_buf[..field_write_start]);
-                        if !parse_field_success {
+                        if form.parse_field(&field_type, &field_buf[..field_write_start]) {
+                            upload_success = true;
+                        } else {
                             break 'outer;
-                        }
+                        } 
                     }
-                    upload_success = true;
                     break 'outer;
                 },
+                ParseResult::NeedMoreData => {
+                    if parse_start == 0 {
+                        // The buffer is not big enough for another read. *very*
+                        // unlikely to happen for a legitimate upload and not
+                        // possible to handle without allocating arbitrary
+                        // ammounts of memory.
+                        break 'outer;
+                    } else {
+                        break;
+                    }
+                },
                 // An error
-                ParseResult::Error => break 'outer,
-
+                ParseResult::Error => break 'outer
             }
         }
 
@@ -326,4 +391,75 @@ fn get_boundary<'a>(conn: &'a Conn) -> Option<&'a str> {
 // Set `conn` to contain a 400 error
 fn error_400(conn: Conn) -> Conn {
     conn.with_body("Error 400").with_status(400).halt()
+}
+
+fn get_file_name(cd: &str) -> Option<&str> {
+    let (_, name) = cd.split_once("filename=")?;
+    let name = name.trim();
+    if name.len() > 2 && name.starts_with('"') && name.ends_with('"') {
+        Some(&name[1..(name.len() - 1)])
+    } else {
+        None
+    }
+}
+
+// Return writer, key, file name, mime type
+async fn handle_file_start(
+    cd: &str, ct: &str, val: &[u8], upload_path: &PathBuf,
+    server_side_processing: bool) -> Result<(Writer, Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)>
+{
+    let file_name_str = match get_file_name(cd) {
+        Some(file_name) => Ok(file_name),
+        None => Err(Error::from(ErrorKind::InvalidInput))
+    }?;
+    let mime_type_str = ct;
+
+    // let server_side_processing = true;
+
+    if server_side_processing {
+        let (mut writer, key, file_name, mime_type)
+            = EncryptedFileWriter::new(&upload_path, file_name_str, mime_type_str)?;
+        write(&mut writer, val).await?;
+
+        Ok((Writer::Encrypted(writer), Some(key), Some(file_name), Some(mime_type)))
+    } else {
+        let file_name = Some(file_name_str.as_bytes().to_owned());
+        let mime_type = Some(mime_type_str.as_bytes().to_owned());
+        let mut writer = FileWriter::new(&upload_path)?;
+        write(&mut writer, val).await?;
+
+        Ok((Writer::Basic(writer), None, file_name, mime_type))
+    }
+}
+
+// Wrapper struct for writer so we can send it into the blocking thread pool
+struct WriterContainer<W>
+where W: TranspoFileWriter
+{
+    writer: *mut W,
+    bytes: *const [u8]
+}
+unsafe impl<W: TranspoFileWriter> Send for WriterContainer<W> {}
+
+// This function is some crazy bullshit which allows writing to files in the
+// blocking thread pool without having to copy the data to write
+async fn write<W>(writer: &mut W, bytes: &[u8]) -> Result<usize>
+where W: TranspoFileWriter + 'static
+{
+    let container = WriterContainer {
+        writer: writer as *mut W,
+        bytes: bytes as *const [u8]
+    };
+
+    unblock(move || {
+        let container = container;
+        // The async task which calls this function waits for its completion
+        // before progressing, so we know that data behind these raw pointers
+        // will not be invalid when we dereference.
+        unsafe {
+            let writer = &mut *container.writer;
+            let bytes = &*container.bytes;
+            writer.write(bytes)
+        }
+    }).await
 }

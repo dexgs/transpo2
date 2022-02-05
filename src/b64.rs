@@ -1,31 +1,32 @@
 use std::collections::HashMap;
 
-// '+' becomes '-' and '/' becomes '_' for URL safety
-const BASE64_TABLE: &[char] = &[
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd',
-    'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-    't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7',
-    '8', '9', '-', '_'
+// '+' becomes '-' and '/' becomes b'_' for URL safety
+pub const BASE64_TABLE: &[u8] = &[
+    b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L',
+    b'M', b'N', b'O', b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X',
+    b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j',
+    b'k', b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's', b't', b'u', b'v',
+    b'w', b'x', b'y', b'z', b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7',
+    b'8', b'9', b'-', b'_'
 ];
 
 // '=' becomes '.' for URL safety
-const BASE64_PADDING: char = '.';
+const BASE64_PADDING: u8 = b'.';
 const BASE64_PADDING_BYTE: u8 = u8::MAX;
 
-const fn map_b64(digit: char) -> u8 {
+const fn map_b64(digit: u8) -> u8 {
     match digit {
-        'A' => 0, 'B' => 1, 'C' => 2, 'D' => 3, 'E' => 4, 'F' => 5, 'G' => 6,
-        'H' => 7, 'I' => 8, 'J' => 9, 'K' => 10, 'L' => 11, 'M' => 12,
-        'N' => 13, 'O' => 14, 'P' => 15, 'Q' => 16, 'R' => 17, 'S' => 18,
-        'T' => 19, 'U' => 20, 'V' => 21, 'W' => 22, 'X' => 23, 'Y' => 24,
-        'Z' => 25, 'a' => 26, 'b' => 27, 'c' => 28, 'd' => 29, 'e' => 30,
-        'f' => 31, 'g' => 32, 'h' => 33, 'i' => 34, 'j' => 35, 'k' => 36,
-        'l' => 37, 'm' => 38, 'n' => 39, 'o' => 40, 'p' => 41, 'q' => 42,
-        'r' => 43, 's' => 44, 't' => 45, 'u' => 46, 'v' => 47, 'w' => 48,
-        'x' => 49, 'y' => 50, 'z' => 51, '0' => 52, '1' => 53, '2' => 54,
-        '3' => 55, '4' => 56, '5' => 57, '6' => 58, '7' => 59, '8' => 60,
-        '9' => 61, '-' => 62, '_' => 63,
+        b'A' => 0, b'B' => 1, b'C' => 2, b'D' => 3, b'E' => 4, b'F' => 5, b'G' => 6,
+        b'H' => 7, b'I' => 8, b'J' => 9, b'K' => 10, b'L' => 11, b'M' => 12,
+        b'N' => 13, b'O' => 14, b'P' => 15, b'Q' => 16, b'R' => 17, b'S' => 18,
+        b'T' => 19, b'U' => 20, b'V' => 21, b'W' => 22, b'X' => 23, b'Y' => 24,
+        b'Z' => 25, b'a' => 26, b'b' => 27, b'c' => 28, b'd' => 29, b'e' => 30,
+        b'f' => 31, b'g' => 32, b'h' => 33, b'i' => 34, b'j' => 35, b'k' => 36,
+        b'l' => 37, b'm' => 38, b'n' => 39, b'o' => 40, b'p' => 41, b'q' => 42,
+        b'r' => 43, b's' => 44, b't' => 45, b'u' => 46, b'v' => 47, b'w' => 48,
+        b'x' => 49, b'y' => 50, b'z' => 51, b'0' => 52, b'1' => 53, b'2' => 54,
+        b'3' => 55, b'4' => 56, b'5' => 57, b'6' => 58, b'7' => 59, b'8' => 60,
+        b'9' => 61, b'-' => 62, b'_' => 63,
         _ => BASE64_PADDING_BYTE
     }
 }
@@ -74,10 +75,10 @@ pub fn base64_decode(b64: &[u8]) -> Vec<u8> {
     for i in 0..len {
         let i = i * 4;
 
-        let b64_1 = map_b64(b64[i] as char);
-        let b64_2 = map_b64(b64[i + 1] as char);
-        let b64_3 = map_b64(b64[i + 2] as char);
-        let b64_4 = map_b64(b64[i + 3] as char);
+        let b64_1 = map_b64(b64[i]);
+        let b64_2 = map_b64(b64[i + 1]);
+        let b64_3 = map_b64(b64[i + 2]);
+        let b64_4 = map_b64(b64[i + 3]);
 
         let first = (b64_1 << 2) + (b64_2 >> 4);
         vec.push(first);

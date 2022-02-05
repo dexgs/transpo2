@@ -9,8 +9,7 @@ const fileInput = document.getElementById("file-input");
 const fileAreaFooter = document.getElementById("file-area-footer");
 const clearFilesButton = document.getElementById("clear-files-button");
 const uploadSizeOutput = document.getElementById("upload-size-output");
-const maxUploadSizeWarning = document.getElementById("max-upload-size-warning");
-const maxUploadSizeText = document.getElementById("max-upload-size");
+const maxUploadSizeWarningTemplate = document.getElementById("max-upload-size-warning-template");
 
 
 fileInput.addEventListener("input", fileInputEvent);
@@ -78,11 +77,18 @@ function updateFileList() {
     }
 
     if (uploadSize > maxUploadSize) {
-        // Make sure the max upload size text is correct
-        maxUploadSizeText.innerHTML = sizeString(maxUploadSize);
-        maxUploadSizeWarning.style.display = "";
+        if (!(fileArea.querySelector("div.max-upload-size-warning"))) {
+            // Make sure the max upload size text is correct
+            let maxUploadSizeWarning = maxUploadSizeWarningTemplate.content.cloneNode(true).firstElementChild;
+            let maxUploadSizeText = maxUploadSizeWarning.querySelector("output");
+            maxUploadSizeText.innerHTML = sizeString(maxUploadSize);
+            fileArea.appendChild(maxUploadSizeWarning);
+        }
     } else {
-        maxUploadSizeWarning.style.display = "none";
+        let maxUploadSizeWarning = fileArea.querySelector("div.max-upload-size-warning");
+        if (maxUploadSizeWarning) {
+            maxUploadSizeWarning.remove();
+        }
     }
 }
 
