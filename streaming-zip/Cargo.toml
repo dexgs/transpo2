@@ -1,0 +1,12 @@
+[package]
+name = "streaming-zip"
+version = "0.3.0"
+edition = "2018"
+authors = ["The packet-capture Authors <oss@nyantec.com>"]
+license = "MirOS"
+description = "A library to create zip files on a non-seekable writer."
+
+[dependencies]
+miniz_oxide = "0.5"
+chrono = "0.4"
+crc = "2.1"

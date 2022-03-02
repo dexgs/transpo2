@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 // '+' becomes '-' and '/' becomes b'_' for URL safety
 pub const BASE64_TABLE: &[u8] = &[
     b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L',
@@ -11,8 +9,8 @@ pub const BASE64_TABLE: &[u8] = &[
 ];
 
 // '=' becomes '.' for URL safety
-const BASE64_PADDING: u8 = b'.';
-const BASE64_PADDING_BYTE: u8 = u8::MAX;
+// const BASE64_PADDING: u8 = b'.';
+// const BASE64_PADDING_BYTE: u8 = u8::MAX;
 
 const fn map_b64(digit: u8) -> u8 {
     match digit {
@@ -27,14 +25,38 @@ const fn map_b64(digit: u8) -> u8 {
         b'x' => 49, b'y' => 50, b'z' => 51, b'0' => 52, b'1' => 53, b'2' => 54,
         b'3' => 55, b'4' => 56, b'5' => 57, b'6' => 58, b'7' => 59, b'8' => 60,
         b'9' => 61, b'-' => 62, b'_' => 63,
-        _ => BASE64_PADDING_BYTE
+        _ => u8::MAX
     }
+}
+
+// Return the number of bytes required to store the base64-encoded form of a
+// byte string with length = `num_bytes`
+pub const fn base64_encode_length(num_bytes: usize) -> usize {
+    (num_bytes / 3) * 4 + match num_bytes % 3 {
+        0 => 0,
+        1 => 2,
+        2 => 3,
+        _ => panic!("This branch is impossible to reach")
+    }
+}
+
+// Return the number of bytes required to store the base64-decoded form of
+// a base64-encoded byte string with length = `num_bytes`
+pub const fn base64_decode_length(num_bytes: usize) -> Option<usize> {
+    Some((num_bytes / 4) * 3 + match num_bytes % 4 {
+        0 => 0,
+        1 => { return None }
+        2 => 1,
+        3 => 2,
+        _ => panic!("This branch is impossible to reach")
+    })
 }
 
 // encode the input bytes into URL-safe base64
 pub fn base64_encode(bytes: &[u8]) -> Vec<u8> {
+    let mut vec = Vec::with_capacity(base64_encode_length(bytes.len()));
+
     let len = (bytes.len() + 2) / 3;
-    let mut vec = Vec::with_capacity(len * 4);
 
     for i in 0..len {
         let i = i * 3;
@@ -54,13 +76,13 @@ pub fn base64_encode(bytes: &[u8]) -> Vec<u8> {
         }
         match third {
             Some(third) => vec.push(BASE64_TABLE[third as usize] as u8),
-            None => vec.push(BASE64_PADDING as u8)
+            None => {} // vec.push(BASE64_PADDING as u8)
         }
 
         let fourth = bytes.get(i + 2).map(|b| b & 0b00111111);
         match fourth {
             Some(fourth) => vec.push(BASE64_TABLE[fourth as usize] as u8),
-            None => vec.push(BASE64_PADDING as u8)
+            None => {} // vec.push(BASE64_PADDING as u8)
         }
     }
 
@@ -68,34 +90,50 @@ pub fn base64_encode(bytes: &[u8]) -> Vec<u8> {
 }
 
 // decode the input bytes from URL-safe base64 into an unencoded form
-pub fn base64_decode(b64: &[u8]) -> Vec<u8> {
-    let len = b64.len() / 4;
-    let mut vec = Vec::with_capacity(len * 3);
+pub fn base64_decode(b64: &[u8]) -> Option<Vec<u8>> {
+    let mut vec = Vec::with_capacity(base64_decode_length(b64.len())?);
+
+    let len = (b64.len() + 3) / 4;
 
     for i in 0..len {
         let i = i * 4;
 
         let b64_1 = map_b64(b64[i]);
         let b64_2 = map_b64(b64[i + 1]);
-        let b64_3 = map_b64(b64[i + 2]);
-        let b64_4 = map_b64(b64[i + 3]);
+        let b64_3 = b64.get(i + 2).map(|b| map_b64(*b));
+        let b64_4 = b64.get(i + 3).map(|b| map_b64(*b));
 
         let first = (b64_1 << 2) + (b64_2 >> 4);
         vec.push(first);
 
-        let mut second = b64_2 << 4;
-        if b64_3 != BASE64_PADDING_BYTE {
-            second += b64_3 >> 2;
+        if let Some(b64_3) = b64_3 {
+            let second = (b64_2 << 4) + (b64_3 >> 2); 
+            vec.push(second);
         }
-        vec.push(second);
 
-        if b64_4 != BASE64_PADDING_BYTE {
-            let third = (b64_3 << 6) + b64_4;
+        if let Some(b64_4) = b64_4 {
+            let third = (b64_3.unwrap() << 6) + b64_4;
             vec.push(third);
         }
     }
 
-    vec
+    Some(vec)
+}
+
+pub fn i64_to_b64_bytes(i: i64) -> Vec<u8> {
+    let bytes = i.to_be_bytes();
+    base64_encode(&bytes)
+}
+
+pub fn i64_from_b64_bytes(bytes: &[u8]) -> Option<i64> {
+    let bytes = base64_decode(bytes)?;
+    let mut i64_bytes = [0; 8];
+    if bytes.len() >= 8 {
+        i64_bytes.copy_from_slice(&bytes[..8]);
+        Some(i64::from_be_bytes(i64_bytes))
+    } else {
+        None
+    }
 }
 
 
@@ -105,8 +143,8 @@ mod tests {
 
     #[test]
     fn test_base64_encode() {
-        let msg = "bazinga!";
-        let expected_b64 = "YmF6aW5nYSE.";
+        let msg = "a simple test";
+        let expected_b64 = "YSBzaW1wbGUgdGVzdA";
 
         let b64 = base64_encode(msg.as_bytes());
 
@@ -115,10 +153,10 @@ mod tests {
 
     #[test]
     fn test_base64_decode() {
-        let b64 = "YmF6aW5nYSE.";
-        let expected_msg = "bazinga!";
+        let b64 = "YSBzaW1wbGUgdGVzdA";
+        let expected_msg = "a simple test";
 
-        let msg = base64_decode(b64.as_bytes());
+        let msg = base64_decode(b64.as_bytes()).unwrap();
 
         assert_eq!(expected_msg.as_bytes(), msg);
     }

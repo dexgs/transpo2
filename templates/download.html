@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8"/>
+        <link rel="stylesheet" href="../css/styles.css"/>
+        <link rel="stylesheet" href="../css/custom/styles.css"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>{{ app_name }} | Download</title>
+    </head>
+    <body>
+        <div id="header">
+            <h1 id="title">Download</h1>
+            <a href="../about">about</a>
+        </div>
+        <div class="ui-frame flex-column">
+            <form id="download-form" class="flex-column" action="../dl/{{ file_id }}" method="get" enctype="application/x-www-form-urlencoded" autocomplete="off">
+                <noscript class="flex-column">
+                    <div class="nojs-warning flex-row">
+                        <span class="flex-no-expand small-text">
+                            <b>JavaScript is not available in your browser.</b>
+                            This means decryption will be handled on the server
+                            instead of in your browser. The key to decrypt the
+                            download will only be stored by the server for the
+                            duration of the decryption process, but be aware
+                            that this is <b>less secure</b> than decrypting in
+                            your browser which requires JavaScript.
+                            <br/><br/>
+                            If you wish to proceed anyway, copy the decryption
+                            key from the address bar into the "Decryption key"
+                            field. The key is the segment of the URL which comes
+                            <b>AFTER</b> the <code>#</code> symbol.
+                        </span>
+                    </div>
+                    <div class="flex-row">
+                        <label for="key-input">Decryption key: </label>
+                        <input id="key-input" name="key" type="text"/>
+                    </div>
+                    <hr/>
+                </noscript>
+
+                <div class="flex-row">
+                    <label for="password-input">Password: </label>
+                    <input id="password-input" name="password" type="text"/>
+                </div>
+                <div class="flex-row">
+                    <span class="flex-no-expand small-text">
+                        The password field can be left blank if the download is
+                        not password protected.
+                    </span>
+                </div>
+
+                <button id="download-button">Download</button>
+            </form>
+        </div>
+    </body>
+</html>

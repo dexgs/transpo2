@@ -70,7 +70,7 @@ function updateFileList() {
     });
 
     if (files.length > 0) {
-        uploadSizeOutput.innerHTML = "Total Size: " + sizeString(uploadSize);
+        uploadSizeOutput.innerHTML = "Upload Size: " + sizeString(uploadSize);
         fileAreaFooter.style.visibility = "";
     } else {
         fileAreaFooter.style.visibility = "hidden";

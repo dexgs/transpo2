@@ -2,39 +2,72 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8"/>
-        <title>{{ app_name }}</title>
         <link rel="stylesheet" href="css/styles.css"/>
         <link rel="stylesheet" href="css/custom/styles.css"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>{{ app_name }}</title>
     </head>
     <body>
-        <span id="transpo-header">
-            <h1 id="transpo-logo">{{ app_name }}</h1>
-        </span>
-        <noscript>
-            Transpo works best with JavaScript enabled!
-        </noscript>
+        <div id="header">
+            <h1 id="title">{{ app_name }}</h1>
+            <a href="about">about<span class="hidden"> {{ app_name }}</span></a>
+        </div>
         <div id="transpo-main" class="ui-frame">
-            <form id="upload-form" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
-                <div style="display: none;">
-                    <i>
-                        This checkbox indicated to the server whether or not the
-                        it will be expected to encrypt + compress uploads. If you
-                        are seeing this in your browser right now, please <b>don't</b>
-                        change the value of this checkbox:
-                    </i>
-                    <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked/>
-                    <hr/>
-                </div>
+            <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
+                <noscript>
+                    <div class="nojs-warning flex-row">
+                        <span class="flex-no-expand small-text">
+                            <b>JavaScript is not available in your browser.</b>
+                            This means encryption will be handled by the server
+                            instead of in your browser. The key required to
+                            decrypt your upload will only be stored on the
+                            server during the encryption process, but be aware
+                            that this is <b>less secure</b> than encrypting your
+                            upload inside your browser which requires
+                            JavaScript.
+                        </span>
+                    </div>
 
-                <div id="file-area">
-                    <input name="files" id="file-input" type="file"/>
-                    <ul id="file-list" style="display: none"></ul>
-                    <div id="file-area-footer" style="visibility: hidden">
-                        <button type="button" id="clear-files-button">Remove All</button>
+                    <div class="hidden" aria-hidden="true">
+                        <hr/>
+                        <b>IGNORE THIS -></b>
+                        <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked/>
+                        <i>
+                            This checkbox indicates to the server whether or not the
+                            it will be expected to encrypt + compress uploads. If you
+                            are seeing this in your browser right now, please <b>don't</b>
+                            change the value of this checkbox
+                        </i>
+                        <hr/>
+                    </div>
+                </noscript>
+
+                <div id="file-area" class="flex-column">
+                    <noscript>
+                        <span>
+                            <input name="enable-multiple-files" id="enable-multiple-files-input" type="checkbox"/>
+                            <label for="enable-multiple-files-input">Enable uploading multiple files</label>
+                        </span>
+                    </noscript>
+
+                    <div class="flex-row">
+                        <h2>Select Files</h2>
+                        <input name="files" id="file-input" type="file" multiple/>
+                    </div>
+
+                    <div id="file-list-container" style="display: none;">
+                        <ul id="file-list"></ul>
+                    </div>
+
+                    <div id="file-area-footer" class="flex-row" style="visibility: hidden; display: none;">
                         <output id="upload-size-output"></output>
+                        <button type="button" id="clear-files-button">
+                            Remove all <span class="hidden">files</span>
+                        </button>
                     </div>
                 </div>
+
+                <h2>Upload Settings</h2>
 
                 <fieldset id="time-limit-fields">
                     <legend>
@@ -59,11 +92,11 @@
                 <fieldset class="togglable-field">
                     <input name="enable-max-downloads" id="enable-max-downloads-input" type="checkbox"/>
                     <label for="enable-max-downloads-input">
-                        Enable Download Limit
+                        Enable download limit
                     </label>
                     <div>
                         <label for="max-downloads">Expire after:</label>
-                        <input name="max-downloads" id="max-downloads-input" type="number" size="10" value="1" min="1"/>
+                        <input name="max-downloads" id="max-downloads-input" type="number" size="5" value="1" min="1"/>
                         <span>downloads</span>
                     </div>
                 </fieldset>
@@ -73,11 +106,11 @@
                 <fieldset class="togglable-field">
                     <input name="enable-password" id="enable-password-input" type="checkbox">
                     <label for="enable-password-input">
-                        Enable Password Protection
+                        Enable password protection
                     </label>
                     <div>
                         <label for="password-input">Password:</label>
-                        <input name="password" id="password-input" type="text" placeholder="This will be needed to access your files"/>
+                        <input name="password" id="password-input" type="text"/>
                     </div>
                 </fieldset>
 
@@ -96,9 +129,13 @@
 
         <template id="file-list-item-template" style="display: none">
             <li data-index="">
-                <button type="button" class="file-list-item-remove">×</button>
-                <span class="file-list-item-name"></span>
+                <span class="hidden">File name:</span>
+                <span class="file-list-item-name flex-no-expand"></span>
+                <span class="hidden">, File size:</span>
                 <span class="file-list-item-size"></span>
+                <button type="button" class="file-list-item-remove">
+                    <span class="hidden">Remove file </span>×
+                </button>
             </li>
         </template>
 
@@ -115,10 +152,10 @@
         <script>
             window.addEventListener("pageshow", () => {
                 maxUploadSize = {{ max_upload_size }};
-                document.getElementById("file-list").style.display = "";
+                document.querySelector("BODY").style.width = "min(800px, 100% - 10px)";
+                document.getElementById("file-list-container").style.display = "";
+                document.getElementById("file-area-footer").style.display = "";
                 document.getElementById("uploaded-area").style.display = "";
-                document.getElementById("server-side-processing-input").checked = false;
-                document.getElementById("file-input").multiple = true;
             });
         </script>
     </body>

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8"/>
+        <link rel="stylesheet" href="../css/styles.css"/>
+        <link rel="stylesheet" href="../css/custom/styles.css"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>{{ app_name }} | About</title>
+    </head>
+    <body style="width: min(800px, 100% - 10px);">
+        <div id="header">
+            <h1 id="title">About</h1>
+        </div>
+        <div class="ui-frame flex-column">
+            <h2>What this is</h2>
+            This is software for securely sharing files over the
+            internet. It supports encrypting an decrypting files in the browser
+            such that their contents are never seen by the server. All files
+            uploaded expire after a configurable amount of time to help make
+            sure your data isn't sitting on the internet forever. The software
+            also supports performing encryption and decryption server-side when
+            JavaScript is unavailable. The information required to view file
+            contents is only stored for the duration of the
+            encryption/decryption process, but this is less secure than
+            performing encryption/decryption in-browser with JavaScript.
+
+            <h2>What this is not</h2>
+            This is not a magic spell that will instantly guarantee the perfect
+            security of the data you share using it. The software is designed to
+            protect your uploads while it stores them, but has no power over
+            data that has left the service. If you share an upload with someone,
+            there is nothing stopping them from re-uploading it somewhere else
+            against your wishes. It is also not impossible that a bad actor
+            could compromise this software in order to steal sensitive
+            information. In short: if you want the best possible security, you
+            cannot trust any third party. Anyone who tells you otherwise is
+            lying to you for one reason or another.
+        </div>
+    </body>
+</html>

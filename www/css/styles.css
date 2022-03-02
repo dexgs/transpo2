@@ -2,24 +2,66 @@ h1, h2, h3 {
     margin: 0;
 }
 
+h2 {
+    font-size: 14pt;
+}
+
 * {
     font-family: sans-serif;
+}
+
+.hidden {
+    display: none;
+}
+
+.flex-no-expand {
+    width: 0;
+    flex-grow: 1;
+}
+
+.small-text {
+    font-size: 10pt;
 }
 
 body {
     width: -moz-fit-content;
     width: fit-content;
+    mid-width: -moz-min-content;
+    min-width: min-content;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     padding: 5px;
     margin: auto;
 }
 
+div#header {
+    width: 100%;
+}
 
-h1#transpo-logo {
+div#header > a {
+    margin-left: 5px;
+}
+
+h1#title {
     width: -moz-fit-content;
     width: fit-content;
     display: inline-block;
 }
 
+div.ui-frame {
+    width: -moz-available;
+    width: available;
+    padding: 10px;
+    border: 1px solid;
+}
+
+.flex-column {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex-grow: 1;
+}
 
 div#transpo-main {
     display: flex;
@@ -27,61 +69,65 @@ div#transpo-main {
     flex-wrap: wrap;
     gap: 10px;
     justify-content: center;
-    padding: 10px;
-    border: 1px solid;
 }
-
 
 form#upload-form {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
+    flex-grow: 3;
 }
 
+div.nojs-warning {
+    background-color: yellow;
+    padding: 5px;
+}
 
 div#file-area {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 10px;
+    justify-content: center;
+    padding: 5px;
     background-color: aliceblue;
 }
 
 div#file-area > input#file-input {
-    margin: auto;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    max-width: 200px;
 }
 
-div#file-area > ul#file-list {
+div#file-area > div#file-list-container {
     flex-grow: 1;
     overflow-y: auto;
-    height: 200px;
+    height: 300px;
+    direction: rtl;
+}
+
+div#file-list-container > ul#file-list {
+    height: 100%;
+    width: 100%;
     padding: 0;
     margin: 0;
     list-style: none;
+    direction: ltr;
 }
 
-div#file-area > ul#file-list > li {
+div#file-area > div#file-list-container > ul#file-list > li {
     display: flex;
     flex-direction: row;
     gap: 5px;
 }
 
 div#file-area > ul#file-list > li > span.file-list-item-name {
-    flex-grow: 1;
+    /*flex-grow: 1;*/
     overflow: hidden;
     text-overflow: ellipsis;
-    width: 0;
+    /*width: 0;*/
     white-space: nowrap;
 }
 
-div#file-area > div#file-area-footer {
+.flex-row {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
+    align-items: center;
+    gap: 10px;
 }
 
 div#file-area > div.max-upload-size-warning {
@@ -90,9 +136,15 @@ div#file-area > div.max-upload-size-warning {
 }
 
 
+fieldset {
+    border: none;
+}
+
 fieldset#time-limit-fields {
-    word-spacing: 2px;
-    text-align: center;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    gap: 10px;
 }
 
 fieldset#time-limit-fields > legend {
@@ -103,15 +155,15 @@ fieldset#time-limit-fields > div {
     display: inline-block;
 }
 
+/*
 fieldset#time-limit-fields input[type="number"] {
-    max-width: 8ch;
 }
-
+*/
 
 hr {
-    width: 90%;
+    width: 100%;
+    margin: 0;
 }
-
 
 fieldset.togglable-input {
     overflow: hidden;
@@ -129,7 +181,7 @@ fieldset.togglable-field div {
     transition: all 0.1s;
 }
 
-fieldset.togglable-field div input#password-input {
+input[type="text"] {
     flex-grow: 1;
 }
 

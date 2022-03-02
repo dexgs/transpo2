@@ -1,58 +1,90 @@
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use crate::db::*;
 
 
 // Count the number of concurrent accessors to files so that they are not
 // deleted during downloads, etc.
 
+pub struct Accessor {
+    parent: Accessors,
+    pub id: i64,
+    pub mtx: Arc<Mutex<()>>,
+    db_connection_info: DbConnectionInfo
+}
+
+impl Accessor {
+    // Decrement the reference count
+    pub fn revoke(&mut self) {
+        let db_connection = establish_connection_info(&self.db_connection_info);
+        Upload::revoke(&db_connection, self.id)
+            .expect("Revoking access in DB");
+        let mut map = self.parent.0.lock().unwrap();
+        let (rc, _) = map.get_mut(&self.id).unwrap();
+        *rc -= 1;
+        if *rc == 0 {
+            map.remove(&self.id);
+        }
+    }
+
+    // Return whether or not there are other accessors on the same ID as is
+    // possessed by this instance
+    pub fn is_only_accessor(&self) -> bool {
+        let db_connection = establish_connection_info(&self.db_connection_info);
+        let map = self.parent.0.lock().unwrap();
+        let (rc, _) = map.get(&self.id).unwrap();
+        *rc == 1 && Upload::num_accessors(&db_connection, self.id) == Some(1)
+    }
+}
+
+/*
+impl Drop for Accessor {
+    fn drop(&mut self) {
+        self.revoke();
+    }
+}
+*/
+
 #[derive(Clone)]
-pub struct Accessors (Arc<Mutex<HashMap<String, usize>>>);
+pub struct Accessors (Arc<Mutex<HashMap<i64, (usize, Arc<Mutex<()>>)>>>);
 
 impl Accessors {
     pub fn new() -> Self {
         Self (Arc::new(Mutex::new(HashMap::new())))
     }
 
-    // Increment the count for the given file. If `only_if_first` is true, only
-    // increment if the count for `file` is not defined or 0. Returns whether or
-    // not the count was incremented.
-    pub fn increment(&self, file: String, only_if_first: bool) -> bool {
+    // pub fn access(&self, id: i64, must_be_new: bool) -> Option<Accessor> {
+    pub fn access(&self, id: i64, db_connection_info: DbConnectionInfo) -> Accessor {
+        let db_connection = establish_connection_info(&db_connection_info);
+        Upload::access(&db_connection, id)
+            .expect("Gaining access in DB");
         let mut map = self.0.lock().unwrap();
-        match map.get_mut(&file) {
-            Some(rc) => {
-                if only_if_first && *rc > 0 {
-                    false
-                } else {
-                    *rc += 1;
-                    true
-                }
+        match map.get_mut(&id) {
+            Some((rc, mtx)) => {
+                let mtx = mtx.clone();
+                *rc += 1;
+                let accessor = Accessor {
+                    parent: self.clone(),
+                    id,
+                    mtx,
+                    db_connection_info
+                };
+
+                accessor
             },
-            None => { map.insert(file, 1); true }
-        }
-    }
+            None => {
+                let mtx = Arc::new(Mutex::new(()));
+                map.insert(id, (1, mtx.clone()));
 
-    // Returns whether or not decrementing reduces the count to 0 for `file`
-    pub fn decrement(&self, file: &str) -> bool {
-        let mut map = self.0.lock().unwrap();
-        let zero_accessors = match map.get_mut(file) {
-            Some(rc) => {
-                *rc -= 1;
-                *rc == 0
-            },
-            None => true
-        };
+                let accessor = Accessor {
+                    parent: self.clone(),
+                    id,
+                    mtx,
+                    db_connection_info
+                };
 
-        if zero_accessors {
-            map.remove(file);
-        }
-
-        zero_accessors
-    }
-
-    pub fn num_accessors(&self, file: &str) -> usize {
-        match self.0.lock().unwrap().get(file) {
-            Some(num) => *num,
-            None => 0
+                accessor
+            }
         }
     }
 }

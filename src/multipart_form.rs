@@ -80,7 +80,7 @@ where B: AsRef<[u8]>
 
             // New fields do *not* always have a Content-Type
             //
-            // We *DON'T* use ct_total_len here because it includes the length
+            // We *DON'T* use cd_total_len here because it includes the length
             // of CD_PREFIX which is stripped off the value of `buf` in this
             // scope!
             let (ct_str, ct_total_len) = if has_ct {
@@ -97,15 +97,23 @@ where B: AsRef<[u8]>
                 ("", NEWLINE.len())
             };
 
-            let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
-            let value_len = find_value_len(value, boundary, boundary_byte_map);
+            let value_start_index = cd_len + NEWLINE.len() + ct_total_len;
+            if value_start_index < buf.len() {
+                let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
+                let value_len = find_value_len(value, boundary, boundary_byte_map);
 
-            let leading_len = boundary.len()
-                + NEWLINE.len()
-                + cd_total_len
-                + ct_total_len;
+                let leading_len = boundary.len()
+                    + NEWLINE.len()
+                    + cd_total_len
+                    + ct_total_len;
 
-            ParseResult::NewValue(leading_len + value_len, cd_str, ct_str, &value[..value_len])
+                ParseResult::NewValue(
+                    leading_len + value_len,
+                    cd_str, ct_str,
+                    &value[..value_len])
+            } else {
+                ParseResult::Error
+            }
         }
     } else {
         // This is the continuation of the value of the previous field
