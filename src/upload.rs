@@ -25,6 +25,9 @@ use argon2::password_hash::{rand_core::OsRng, SaltString};
 use rand::{thread_rng, Rng};
 
 
+// Make sure storage capacity is not exceeded after reading this many bytes
+const STORAGE_CHECK_INTERVAL: usize = 1024 * 1024 * 10;
+
 const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
 // Content-Disposition for valid form fields
@@ -180,19 +183,9 @@ enum Writer {
     Basic(Unblock<FileWriter>),
     Encrypted(Unblock<EncryptedFileWriter>),
     EncryptedZip(Unblock<EncryptedZipWriter>)
-    // None
 }
 
 impl Writer {
-    /*
-    fn is_none(&self) -> bool {
-        match self {
-            Writer::None => true,
-            _ => false
-        }
-    }
-    */
-
     async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         match self {
             Writer::Basic(writer) => {
@@ -216,7 +209,6 @@ impl Writer {
             Writer::Basic(writer) => writer.flush().await,
             Writer::Encrypted(writer) => writer.flush().await,
             Writer::EncryptedZip(writer) => writer.flush().await
-            // Writer::None => Err(Error::from(ErrorKind::Other))
         }
     }
 }
@@ -224,7 +216,6 @@ impl Writer {
 
 pub async fn handle(
     mut conn: Conn, config: Arc<TranspoConfig>,
-    // accessors: Accessors, db_backend: DbBackend) -> Conn
     db_backend: DbBackend) -> Conn
 {
     // Get the boundary of the multi-part form
@@ -241,10 +232,8 @@ pub async fn handle(
         // possible byte value.
         return error_400(conn);
     }
-    // let boundary_byte_map = byte_map(boundary.as_bytes());
 
     let (upload_id, upload_id_string, upload_dir) = {
-        // let accessors = accessors.clone();
         let storage_path = config.storage_dir.clone();
         unblock(move || {
             let mut rng = thread_rng();
@@ -252,16 +241,15 @@ pub async fn handle(
                 let id = rng.gen();
                 let id_string = String::from_utf8(b64::i64_to_b64_bytes(id)).unwrap();
 
-                // if accessors.access(id, true).is_some() {
                 let dir = storage_path.join(&id_string);
                 // This will fail if the directory already exists
                 if fs::create_dir(&dir).is_ok() {
                     return (id, id_string, dir);
                 }
-                // }
             }
         })
     }.await;
+
     let upload_path = upload_dir.join("upload");
 
     let mut file_writer: Option<Writer> = None;
@@ -269,27 +257,23 @@ pub async fn handle(
     let mut file_name: Option<Vec<u8>> = None;
     let mut mime_type: Option<Vec<u8>> = None;
 
-    // Form fields
     let mut form = UploadForm::new();
 
     let req_body = conn.request_body().await;
 
     let parse_result = parse_upload_request(
-        req_body, boundary, &upload_path, db_backend, &mut form,
-        &mut file_writer, &mut key, &mut file_name, &mut mime_type,
-        config.clone()).await;
+        req_body, boundary, &upload_path, &mut form, &mut file_writer, &mut key,
+        &mut file_name, &mut mime_type, config.clone()).await;
 
     let upload_success = match parse_result {
         Ok(result) => result,
         Err(_) => false
     };
 
-    //println!("{:?}", form);
-
     // Respond to the client
     if upload_success
     && write_to_db(form, upload_id.clone(), file_name, mime_type, db_backend,
-    config.clone()).await.is_some()
+                   config.clone()).await.is_some()
     {
         if let Some(key) = key {
             let key_string = String::from_utf8(key).unwrap();
@@ -320,7 +304,7 @@ pub async fn handle(
         unblock(move || {
             if upload_dir.exists() {
                 std::fs::remove_dir_all(upload_dir)
-                .expect("Deleting incomplete upload");
+                .expect("Deleting failed upload");
             }
         }).await;
 
@@ -328,13 +312,23 @@ pub async fn handle(
     }
 }
 
+async fn is_storage_full(config: Arc<TranspoConfig>) -> Result<bool> {
+    unblock(move || {
+        Ok(get_storage_size(&config.storage_dir)? > config.max_storage_size_bytes)
+    }).await
+}
+
 async fn parse_upload_request(
     mut req_body: ReceivedBody<'_, BoxedTransport>, boundary: String, upload_path: &PathBuf,
-    db_backend: DbBackend, form: &mut UploadForm,
+    form: &mut UploadForm,
     file_writer: &mut Option<Writer>, key: &mut Option<Vec<u8>>,
     file_name: &mut Option<Vec<u8>>, mime_type: &mut Option<Vec<u8>>,
     config: Arc<TranspoConfig>) -> Result<bool>
 {
+    if is_storage_full(config.clone()).await? {
+        return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+    }
+
     let mut upload_success = false;
     let mut buf = [0; FORM_READ_BUFFER_SIZE];
     let boundary_byte_map = byte_map(boundary.as_bytes());
@@ -348,9 +342,19 @@ async fn parse_upload_request(
     let mut field_buf = [0; FORM_FIELD_BUFFER_SIZE];
     let mut field_write_start = 0;
 
+    let mut bytes_read_interval = 0;
+
     'outer: while let Ok(bytes_read) = req_body.read(&mut buf[read_start..]).await {
         if bytes_read == 0 {
             break 'outer;
+        }
+
+        bytes_read_interval += bytes_read;
+        if bytes_read_interval > STORAGE_CHECK_INTERVAL {
+            bytes_read_interval = 0;
+            if is_storage_full(config.clone()).await? {
+                return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+            }
         }
 
         // Make sure buf does not contain data from the previous read
@@ -401,10 +405,7 @@ async fn parse_upload_request(
                             match handle_file_start(cd, ct, &upload_path, file_writer,
                                                     server_side_processing,
                                                     enable_multiple_files,
-                                                    config.max_storage_size_bytes,
                                                     config.max_upload_size_bytes,
-                                                    db_backend,
-                                                    &config.db_url,
                                                     config.compression_level).await
                             {
                                 Ok((k, f, m)) => {
@@ -485,7 +486,7 @@ async fn parse_upload_request(
                 },
                 // The end of the form
                 ParseResult::Finished => {
-                    if field_type != FormField::Invalid { // && file_writer.flush().await.is_ok() {
+                    if field_type != FormField::Invalid {
                         // parse the value of the previous field, if it wasn't
                         // the contents of the upload
                         if field_type != FormField::Files {
@@ -493,15 +494,28 @@ async fn parse_upload_request(
                         }
 
                         if let Some(mut writer) = file_writer.take() {
-                            upload_success = writer.flush().await.is_ok();
+                            upload_success = writer.flush().await.is_ok() && upload_success;
 
-                            if let Writer::EncryptedZip(writer) = writer {
-                                let mut inner_writer = writer.into_inner().await;
-                                upload_success = unblock(move || {
-                                    inner_writer.finish_file().is_ok()
-                                        && inner_writer.finish().is_ok()
-                                }).await && upload_success;
+                            match writer {
+                                Writer::EncryptedZip(writer) => {
+                                    // Finish the Zip archive by writing the
+                                    // end of central directory record
+                                    let mut inner_writer = writer.into_inner().await;
+                                    unblock::<Result<()>, _>(move || {
+                                        inner_writer.finish_file()?;
+                                        inner_writer.finish()?;
+                                        Ok(())
+                                    }).await?;
+                                },
+                                Writer::Encrypted(mut writer) => {
+                                    writer.with_mut(|w| w.finish()).await?;
+                                },
+                                _ => {}
                             }
+                        }
+
+                        if is_storage_full(config.clone()).await? {
+                            return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
                         }
                     }
 
@@ -575,27 +589,24 @@ async fn handle_file_start(
     cd: &str, ct: &str, upload_path: &PathBuf, file_writer: &mut Option<Writer>,
     server_side_processing: bool,
     enable_multiple_files: bool,
-    max_storage_size: usize,
     max_upload_size: usize,
-    db_backend: DbBackend,
-    db_url: &str,
     compression_level: usize) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)>
 {
-    let db_connection = establish_connection(db_backend, db_url);
-
     let file_name_str = match get_file_name(cd) {
         Some(file_name) => Ok(file_name),
         None => Err(Error::from(ErrorKind::InvalidInput))
     }?;
+    if file_name_str.is_empty() {
+        return Err(Error::new(ErrorKind::InvalidInput, "File name is empty"));
+    }
 
     let mime_type_str = ct;
     // https://datatracker.ietf.org/doc/html/rfc4288#section-4.2
     if mime_type_str.len() > 255 {
-        return Err(Error::from(ErrorKind::InvalidInput));
+        return Err(Error::new(ErrorKind::InvalidInput, "Mime type is too long"));
+    } else if mime_type_str.is_empty() {
+        return Err(Error::new(ErrorKind::InvalidInput, "Mime type is empty"));
     }
-
-    // let server_side_processing = true;
-    // println!("{enable_multiple_files}");
 
     match file_writer {
         Some(writer) => {
@@ -618,8 +629,8 @@ async fn handle_file_start(
                     // Multi-file upload with server-side processing on
                     let (mut inner_writer, key, file_name, mime_type)
                         = EncryptedZipWriter::new(
-                            &upload_path, max_storage_size, max_upload_size,
-                            db_connection, compression_level as u8)?;
+                            &upload_path, max_upload_size,
+                            compression_level as u8)?;
                     let file_name_str = file_name_str.to_owned();
 
                     let inner_writer = unblock::<Result<Unblock<EncryptedZipWriter>>, _>(move || {
@@ -633,8 +644,8 @@ async fn handle_file_start(
                     // Single file upload with server-side processing on
                     let (inner_writer, key, file_name, mime_type)
                         = EncryptedFileWriter::new(
-                            &upload_path, max_storage_size, max_upload_size,
-                            db_connection, file_name_str, mime_type_str)?;
+                            &upload_path, max_upload_size,
+                            file_name_str, mime_type_str)?;
                     let inner_writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
 
                     *file_writer = Some(Writer::Encrypted(inner_writer));
@@ -644,9 +655,7 @@ async fn handle_file_start(
                 // Single file upload with client-side processing
                 let file_name = Some(file_name_str.as_bytes().to_owned());
                 let mime_type = Some(mime_type_str.as_bytes().to_owned());
-                let inner_writer = FileWriter::new(
-                    &upload_path, max_storage_size, max_upload_size,
-                    db_connection)?;
+                let inner_writer = FileWriter::new(&upload_path, max_upload_size)?;
                 let inner_writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
 
                 *file_writer = Some(Writer::Basic(inner_writer));
@@ -663,7 +672,6 @@ async fn handle_file_start(
 // affected rows (or None if there was an error)
 async fn write_to_db(
     form: UploadForm, id: i64, file_name: Option<Vec<u8>>, mime_type: Option<Vec<u8>>,
-    // db_backend: DbBackend, config: Arc<TranspoConfig>, accessors: Accessors) -> Option<usize>
     db_backend: DbBackend, config: Arc<TranspoConfig>) -> Option<usize>
 {
 
@@ -710,14 +718,9 @@ async fn write_to_db(
     };
 
     unblock(move || {
-        // if let Some(accessor) = accessors.access(id, true) {
         let db_connection = establish_connection(db_backend, &config.db_url);
         let num_modified_rows = upload.insert(&db_connection)?;
-        // drop(accessor);
 
         Some(num_modified_rows)
-        /* } else {
-            None
-        }*/
     }).await
 }

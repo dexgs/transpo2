@@ -8,10 +8,6 @@ pub const BASE64_TABLE: &[u8] = &[
     b'8', b'9', b'-', b'_'
 ];
 
-// '=' becomes '.' for URL safety
-// const BASE64_PADDING: u8 = b'.';
-// const BASE64_PADDING_BYTE: u8 = u8::MAX;
-
 const fn map_b64(digit: u8) -> u8 {
     match digit {
         b'A' => 0, b'B' => 1, b'C' => 2, b'D' => 3, b'E' => 4, b'F' => 5, b'G' => 6,
@@ -76,13 +72,13 @@ pub fn base64_encode(bytes: &[u8]) -> Vec<u8> {
         }
         match third {
             Some(third) => vec.push(BASE64_TABLE[third as usize] as u8),
-            None => {} // vec.push(BASE64_PADDING as u8)
+            None => {}
         }
 
         let fourth = bytes.get(i + 2).map(|b| b & 0b00111111);
         match fourth {
             Some(fourth) => vec.push(BASE64_TABLE[fourth as usize] as u8),
-            None => {} // vec.push(BASE64_PADDING as u8)
+            None => {}
         }
     }
 
@@ -98,8 +94,8 @@ pub fn base64_decode(b64: &[u8]) -> Option<Vec<u8>> {
     for i in 0..len {
         let i = i * 4;
 
-        let b64_1 = map_b64(b64[i]);
-        let b64_2 = map_b64(b64[i + 1]);
+        let b64_1 = map_b64(*b64.get(i)?);
+        let b64_2 = map_b64(*b64.get(i + 1)?);
         let b64_3 = b64.get(i + 2).map(|b| map_b64(*b));
         let b64_4 = b64.get(i + 3).map(|b| map_b64(*b));
 

@@ -1,3 +1,6 @@
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/POST
+
 use std::{cmp, str};
 
 const CD_PREFIX: &'static [u8] = b"Content-Disposition: ";
@@ -6,7 +9,6 @@ const CT_PREFIX: &'static [u8] = b"Content-Type: ";
 const CT_PREFIX_BYTE_MAP: &'static [bool] = &ct_prefix_byte_map();
 const TERMINATOR: &'static [u8] = b"--"; // Come with me if you want to live.
 const NEWLINE: &'static [u8] = b"\r\n";
-// const DOUBLE_NEWLINE: &'static [u8] = b"\r\n\r\n";
 const NEWLINE_BYTE_MAP: &'static [bool] = &newline_byte_map();
 
 pub enum ParseResult<'a> {
@@ -19,13 +21,16 @@ pub enum ParseResult<'a> {
     Error
 }
 
+// This is a stateless parser for multipart POST requests.
+//
 // Returns the length of the data parsed, what was parsed and, if it is a new
 // form field, the Content-Disposition (and Content-Type if it has one).
 //
 // Subsequent calls to this function MUST guarantee that `buf` begins where
-// parsing last ended.
+// parsing last ended, i.e. the elements of buf starting at the index where
+// parsing last ended should be copied to the beginning of buf.
 //
-// `boundary` is assumed to be prefixed with "\r\n--"
+// `boundary` MUST be prefixed with "\r\n--"
 pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[bool]) -> ParseResult<'a>
 where B: AsRef<[u8]>
 {
@@ -129,9 +134,9 @@ fn try_strip_prefix<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool]) 
     match buf.strip_prefix(prefix) {
         Some(buf) => Ok(buf),
         None => {
-            if buf.len() >= prefix.len() {
-                Err(ParseResult::Error)
-            } else if ends_with_subslice(buf, prefix, prefix_byte_map) {
+            if buf.len() < prefix.len()
+                && ends_with_subslice(buf, prefix, prefix_byte_map)
+            {
                 Err(ParseResult::NeedMoreData)
             } else {
                 Err(ParseResult::Error)
@@ -153,6 +158,9 @@ fn find_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option<usize>
     let mut i = 0;
     'outer: while i + s2.len() <= s1.len() {
         for j in (1..s2.len()).rev() {
+            // If we find a byte that does not occur in s2, we know that no
+            // instance of s2 in s1 can overlap with that byte, so we can "jump"
+            // past it in our search.
             if !s2_byte_map[s1[i + j - 1] as usize] {
                 i += j;
                 continue 'outer;
@@ -214,7 +222,11 @@ where B1: AsRef<[u8]>,
 }
 
 // Return an array of bool where the value at index n (for any n: u8) represents
-// whether or not that byte is present in the given byte string
+// whether or not that byte is present in the given byte string.
+//
+// By doing this, it becomes possible to check whether or not a given value
+// appears in the byte string in constant time by evaluating the element at the
+// index equal to that value.
 pub fn byte_map(s: &[u8]) -> [bool; u8::MAX as usize + 1] {
     let mut map = [false; u8::MAX as usize + 1];
     for b in s {

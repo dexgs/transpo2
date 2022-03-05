@@ -11,6 +11,9 @@ const clearFilesButton = document.getElementById("clear-files-button");
 const uploadSizeOutput = document.getElementById("upload-size-output");
 const maxUploadSizeWarningTemplate = document.getElementById("max-upload-size-warning-template");
 
+const uploadedList = document.getElementById("uploaded-list");
+const uploadedListItemTemplate = document.getElementById("uploaded-list-item-template");
+
 
 fileInput.addEventListener("input", fileInputEvent);
 clearFilesButton.addEventListener("click", clearAllFiles);
@@ -70,7 +73,7 @@ function updateFileList() {
     });
 
     if (files.length > 0) {
-        uploadSizeOutput.innerHTML = "Upload Size: " + sizeString(uploadSize);
+        uploadSizeOutput.innerHTML = sizeString(uploadSize);
         fileAreaFooter.style.visibility = "";
     } else {
         fileAreaFooter.style.visibility = "hidden";
@@ -126,6 +129,52 @@ function fileDropEvent(e) {
     }
 }
 
+
+// Add an entry to the "uploaded" list
+function addUploadedListItem(files, id, key) {
+    let listItem = uploadedListItemTemplate.content.cloneNode(true).firstElementChild;
+    let link = listItem.querySelector("A");
+    let fileName = link.querySelector(".uploaded-list-item-file-name");
+    let otherFiles = link.querySelector(".uploaded-list-item-other-files");
+    let copyButton = listItem.querySelector(".uploaded-list-item-copy-url");
+    let removeButton = listItem.querySelector(".uploaded-list-item-remove");
+
+    let allFileNames = files[0].name;
+    for (let i = 1; i < files.length; i++) {
+        allFileNames = allFileNames.concat(", ", files[i].name);
+    }
+
+    link.title = allFileNames;
+    link.href = id.concat("#", key);
+
+    fileName.innerHTML = files[0].name;
+
+    let numOtherFiles = files.length - 1;
+    if (numOtherFiles > 0) {
+        otherFiles.querySelector("OUTPUT").innerHTML = new String(numOtherFiles);
+    } else {
+        otherFiles.remove();
+    }
+
+    uploadedList.appendChild(listItem);
+}
+
+function copyUploadURL(button) {
+    let link = button.parentElement.querySelector("A");
+
+    let textArea = document.createElement("TEXTAREA");
+    textArea.value = link.href;
+
+    link.appendChild(textArea);
+
+    textArea.select();
+    document.execCommand("copy");
+    textArea.remove();
+}
+
+function removeUploadedListEntry(button) {
+    button.parentElement.remove();
+}
 
 window.addEventListener("pageshow", () => {
     // Make sure the file input contains the contents of filesToUpload

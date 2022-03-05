@@ -9,6 +9,7 @@ mod b64;
 mod files;
 mod constants;
 mod db;
+mod cleanup;
 // mod rate_limit; not used for now...
 mod http_errors;
 
@@ -22,6 +23,7 @@ use constants::*;
 use b64::*;
 use templates::*;
 use concurrency::*;
+use cleanup::*;
 
 use std::env;
 use std::fs;
@@ -50,12 +52,11 @@ fn main() {
         let db_connection = db::establish_connection(db_backend, &config.db_url);
         db::run_migrations(&db_connection);
 
-        let storage_size = files::get_storage_size(&config.storage_dir)
-            .expect("Calculating upload storage size");
-        db::StorageSize::set(&db_connection, storage_size)
-            .expect("Setting upload storage size in DB");
-
         let config = Arc::new(config);
+
+        spawn_cleanup_thread(
+            config.storage_dir.to_owned(),
+            db_backend, config.db_url.to_owned());
 
         trillium_main(config, db_backend);
     } else {

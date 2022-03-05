@@ -27,8 +27,8 @@ impl From<&TranspoConfig> for IndexTemplate {
             cmp::max(config.max_upload_age_minutes / 60 - 1, 0)
         };
 
-        let max_minutes = if max_hours > 0 {
-            59
+        let max_minutes = if max_hours > 1 {
+            60
         } else {
             config.max_upload_age_minutes
         };

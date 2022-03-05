@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
     <head>
         <meta charset="UTF-8"/>
         <link rel="stylesheet" href="css/styles.css"/>
@@ -10,7 +10,7 @@
     <body>
         <div id="header">
             <h1 id="title">{{ app_name }}</h1>
-            <a href="about">about<span class="hidden"> {{ app_name }}</span></a>
+            <a href="about">About<span class="hidden"> {{ app_name }}</span></a>
         </div>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
@@ -60,7 +60,10 @@
                     </div>
 
                     <div id="file-area-footer" class="flex-row" style="visibility: hidden; display: none;">
-                        <output id="upload-size-output"></output>
+                        <span>
+                            Upload size:
+                            <output id="upload-size-output"></output>
+                        </span>
                         <button type="button" id="clear-files-button">
                             Remove all <span class="hidden">files</span>
                         </button>
@@ -90,6 +93,7 @@
                 <hr/>
 
                 <fieldset class="togglable-field">
+                    <legend class="hidden">Download limit settings</legend>
                     <input name="enable-max-downloads" id="enable-max-downloads-input" type="checkbox"/>
                     <label for="enable-max-downloads-input">
                         Enable download limit
@@ -104,6 +108,7 @@
                 <hr/>
 
                 <fieldset class="togglable-field">
+                    <legend class="hidden">Password protection settings</legend>
                     <input name="enable-password" id="enable-password-input" type="checkbox">
                     <label for="enable-password-input">
                         Enable password protection
@@ -122,7 +127,9 @@
 
             <div id="uploaded-area" style="display: none">
                 <h2>Your Uploads</h2>
-                <ul id="uploaded-list"></ul>
+                <div id="uploaded-list-container">
+                    <ul id="uploaded-list"></ul>
+                </div>
             </div>
         </div>
 
@@ -145,9 +152,28 @@
             </div>
         </template>
 
+        <template id="uploaded-list-item-template" style="display: none">
+            <li>
+                <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
+                    Copy URL
+                </button>
+                <a class="flex-no-expand">
+                    <span class="uploaded-list-item-file-name"></span>
+                    <span class="uploaded-list-item-other-files">
+                        + <output></output> more
+                    </span>
+                </a>
+                <button class="uploaded-list-item-remove" onclick="removeUploadedListEntry(this)">
+                    <span class="hidden">Remove URL </span>×
+                </button>
+            </li>
+        </template>
+
 
         <script src="js/size_string.js"></script>
         <script src="js/files.js"></script>
+        <script src="js/transpo/upload.js"></script>
+        <script src="js/transpo/crypto.js"></script>
 
         <script>
             window.addEventListener("pageshow", () => {

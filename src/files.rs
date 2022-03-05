@@ -7,8 +7,7 @@ use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use crate::b64;
 use crate::random_bytes::*;
 use crate::constants::*;
-use crate::db::*;
-use chrono;
+use chrono::*;
 use std::cmp;
 use streaming_zip::*;
 
@@ -21,15 +20,12 @@ const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 // multiple times returns an error
 pub struct FileWriter {
     writer: BufWriter<File>,
-    max_storage_size: usize,
     max_upload_size: usize,
     bytes_written: usize,
-    db_connection: DbConnection
 }
 
 impl FileWriter {
-    pub fn new(path: &PathBuf, max_storage_size: usize, max_upload_size: usize,
-               db_connection: DbConnection) -> Result<Self>
+    pub fn new(path: &PathBuf, max_upload_size: usize) -> Result<Self>
     {
         let file = File::options()
             .write(true)
@@ -38,10 +34,8 @@ impl FileWriter {
 
         let new = Self {
             writer: BufWriter::new(file),
-            max_storage_size,
             max_upload_size,
-            bytes_written: 0,
-            db_connection,
+            bytes_written: 0
         };
 
         Ok(new)
@@ -51,19 +45,9 @@ impl FileWriter {
 impl Write for FileWriter {
     fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         self.bytes_written += bytes.len();
-
         if self.bytes_written > self.max_upload_size {
             return Err(other_error());
         }
-
-        let storage_size = StorageSize::get(&self.db_connection)
-            .expect("Reading upload storage size from DB");
-        if storage_size as usize + bytes.len() > self.max_storage_size {
-            return Err(other_error());
-        }
-
-        StorageSize::increment(&self.db_connection, bytes.len() as i64)
-            .expect("Incrementing upload storage size in DB");
 
         self.writer.write(bytes)
     }
@@ -99,15 +83,14 @@ fn encrypt_string(cipher: &Aes256Gcm, string: &str) -> Result<Vec<u8>> {
 
 impl EncryptedFileWriter {
     // Return the writer + the b64 encoded key, encrypted file name and encrypted mime type
-    pub fn new(path: &PathBuf, max_storage_size: usize, max_upload_size: usize,
-               db_connection: DbConnection, name: &str, mime: &str) -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
+    pub fn new(path: &PathBuf, max_upload_size: usize, name: &str, mime: &str) -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
     {
         let mut key_slice = [0; 32];
         random_bytes(&mut key_slice);
         let encoded_key = b64::base64_encode(&key_slice);
         let key = Key::from_slice(&key_slice);
         let cipher = Aes256Gcm::new(key);
-        let writer = FileWriter::new(path, max_storage_size, max_upload_size, db_connection)?;
+        let writer = FileWriter::new(path, max_upload_size)?;
 
         let name_cipher = b64::base64_encode(&encrypt_string(&cipher, name)?);
         let mime_cipher = b64::base64_encode(&encrypt_string(&cipher, mime)?);
@@ -119,6 +102,12 @@ impl EncryptedFileWriter {
         };
 
         Ok((new, encoded_key, name_cipher, mime_cipher))
+    }
+
+    pub fn finish(&mut self) -> Result<()> {
+        // Make sure the file is terminated by two zero bytes
+        self.writer.write(&0u16.to_be_bytes())?;
+        Ok(())
     }
 }
 
@@ -157,13 +146,6 @@ impl Write for EncryptedFileWriter {
     }
 }
 
-impl Drop for EncryptedFileWriter {
-    fn drop(&mut self) {
-        // Make sure the file is terminated by two zero bytes
-        self.writer.write(&0u16.to_be_bytes()).unwrap();
-    }
-}
-
 
 // Wrap an EncryptedFileWriter such that multiple files can be written into a
 // single archive. 
@@ -174,12 +156,9 @@ pub struct EncryptedZipWriter {
 
 impl EncryptedZipWriter {
     // Return the writer + the b64 encoded key, encrypted file name and encrypted mime type
-    pub fn new(path: &PathBuf, max_storage_size: usize, max_upload_size: usize,
-               db_connection: DbConnection, level: u8) -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
-    {
+    pub fn new(path: &PathBuf, max_upload_size: usize, level: u8) -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)> {
         let (inner_writer, key, name, mime) = EncryptedFileWriter::new(
-            path, max_storage_size, max_upload_size, 
-            db_connection, &format!("files.zip"), "application/zip")?;
+            path, max_upload_size, "", "application/zip")?;
         if level > 9 {
             return Err(Error::from(ErrorKind::InvalidInput));
         }
@@ -199,7 +178,7 @@ impl EncryptedZipWriter {
     }
 
     pub fn start_new_file(&mut self, name: &str) -> Result<()> {
-        let now = chrono::Local::now().naive_local();
+        let now = Local::now().naive_local();
         self.writer.start_new_file(name.to_owned().into_bytes(), now, self.compression, true)
     }
 
@@ -208,7 +187,8 @@ impl EncryptedZipWriter {
     }
 
     pub fn finish(self) -> Result<()> {
-        self.writer.finish()?;
+        let mut inner_writer = self.writer.finish()?;
+        inner_writer.finish()?;
         Ok(())
     }
 }
@@ -230,15 +210,17 @@ impl Write for EncryptedZipWriter {
 // Basic wrapper around a buffered reader for a file.
 pub struct FileReader {
     reader: BufReader<File>,
+    expire_after: NaiveDateTime,
 }
 
 impl FileReader {
-    pub fn new(path: &PathBuf) -> Result<Self> {
+    pub fn new(path: &PathBuf, expire_after: NaiveDateTime) -> Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
 
         let new = Self {
-            reader: reader
+            reader,
+            expire_after
         };
 
         Ok(new)
@@ -247,7 +229,12 @@ impl FileReader {
 
 impl Read for FileReader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.reader.read(buf)
+        let now = Local::now().naive_local();
+        if now > self.expire_after {
+            Err(Error::new(ErrorKind::Other, "Upload expired during download"))
+        } else {
+            self.reader.read(buf)
+        }
     }
 }
 
@@ -271,7 +258,10 @@ fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8]) -> Result<String> {
 
 impl EncryptedFileReader {
     // Return the reader + the decrypted file name and decrypted mime type
-    pub fn new(path: &PathBuf, key: &[u8], name_cipher: &[u8], mime_cipher: &[u8]) -> Result<(Self, String, String)> {
+    pub fn new(
+        path: &PathBuf, expire_after: NaiveDateTime, key: &[u8],
+        name_cipher: &[u8], mime_cipher: &[u8]) -> Result<(Self, String, String)>
+    {
         let key_slice = b64::base64_decode(key).ok_or(other_error())?;
         let key = Key::from_slice(&key_slice);
         let cipher = Aes256Gcm::new(key);
@@ -280,7 +270,7 @@ impl EncryptedFileReader {
         let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error())?)?;
 
         let new = Self {
-            reader: FileReader::new(path)?,
+            reader: FileReader::new(path, expire_after)?,
             cipher: cipher,
             buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
             read_start: 0,
@@ -356,27 +346,17 @@ fn other_error() -> Error {
     Error::from(ErrorKind::Other)
 }
 
-pub fn delete_upload_dir(storage_dir: &PathBuf, id: i64,
-                         db_connection: &DbConnection)
-{
+pub fn delete_upload_dir(storage_dir: &PathBuf, id: i64) {
     let id_string = String::from_utf8(b64::i64_to_b64_bytes(id)).unwrap();
     let upload_path = storage_dir.join(id_string);
     if upload_path.exists() {
-        let size = File::open(upload_path.join("upload"))
-            .and_then(|f| f.metadata())
-            .map(|m| m.len());
-        if let Ok(size) = size {
-            StorageSize::increment(db_connection, (size as i64) * -1)
-                .expect("Decrementing upload storage size in DB");
-        }
-
         if let Err(e) = std::fs::remove_dir_all(upload_path) {
             eprintln!("{}", e);
         }
     }
 }
 
-pub fn get_storage_size(storage_dir: &PathBuf) -> Result<i64> {
+pub fn get_storage_size(storage_dir: &PathBuf) -> Result<usize> {
     let mut storage_size = 0;
 
     for entry in storage_dir.read_dir()? {
@@ -388,7 +368,7 @@ pub fn get_storage_size(storage_dir: &PathBuf) -> Result<i64> {
                 .map(|m| m.len());
 
             if let Ok(size) = size {
-                storage_size += size as i64;
+                storage_size += size as usize;
             }
         }
     }

@@ -100,7 +100,6 @@ div#file-area > div#file-list-container {
 }
 
 div#file-list-container > ul#file-list {
-    height: 100%;
     width: 100%;
     padding: 0;
     margin: 0;
@@ -111,14 +110,13 @@ div#file-list-container > ul#file-list {
 div#file-area > div#file-list-container > ul#file-list > li {
     display: flex;
     flex-direction: row;
+    align-items: center;
     gap: 5px;
 }
 
 div#file-area > ul#file-list > li > span.file-list-item-name {
-    /*flex-grow: 1;*/
     overflow: hidden;
     text-overflow: ellipsis;
-    /*width: 0;*/
     white-space: nowrap;
 }
 
@@ -155,10 +153,6 @@ fieldset#time-limit-fields > div {
     display: inline-block;
 }
 
-/*
-fieldset#time-limit-fields input[type="number"] {
-}
-*/
 
 hr {
     width: 100%;
@@ -194,8 +188,72 @@ fieldset.togglable-field input:checked ~ div {
 
 
 div#uploaded-area {
+    display: flex;
+    flex-direction: column;
     width: 230px;
+    min-height: 300px;
     padding: 5px;
     background-color: aliceblue;
     flex-grow: 1;
+}
+
+div#uploaded-list-container {
+    direction: rtl;
+    width: 100%;
+    overflow-y: auto;
+    overflow-x: visible;
+    flex-grow: 1;
+    height: 0;
+}
+
+ul#uploaded-list {
+    direction: ltr;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+}
+
+ul#uploaded-list > li {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
+    align-items: center;
+}
+
+ul#uploaded-list > li > a {
+    display: flex;
+    white-space: nowrap;
+}
+
+ul#uploaded-list > li > a > span.uploaded-list-item-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+.throbber::before {
+    content: "";
+    display: block;
+    width: 20px;
+    height: 20px;
+    margin-bottom: -20px;
+    top: -1px;
+    position: relative;
+    background: blue;
+
+    animation-name: spin;
+    animation-duration: 2000ms;
+    animation-iteration-count: infinite;
+    animation-timing-function: linear;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }

@@ -40,7 +40,7 @@ where R: Read
 
             if should_delete {
                 Upload::delete_with_id(self.accessor.id, &db_connection);
-                delete_upload_dir(&self.config.storage_dir, self.accessor.id, &db_connection);
+                delete_upload_dir(&self.config.storage_dir, self.accessor.id);
             }
         }
 
@@ -106,7 +106,7 @@ pub async fn handle(
             let upload = if row.is_expired() {
                 if accessor.is_only_accessor() {
                     Upload::delete_with_id(accessor.id, &db_connection);
-                    delete_upload_dir(&config.storage_dir, accessor.id, &db_connection);
+                    delete_upload_dir(&config.storage_dir, accessor.id);
                 }
                 None
             } else {
@@ -132,19 +132,22 @@ pub async fn handle(
 
 
         let accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
-        let upload_path = config.storage_dir.join(id_string).join("upload");
+        let upload_path = config.storage_dir.join(&id_string).join("upload");
         let (body, file_name, mime_type) = match crypto_key {
             Some(key) => {
-                let (reader, file_name, mime_type) =
+                let (reader, mut file_name, mime_type) =
                     EncryptedFileReader::new(
-                        &upload_path, &key, upload.file_name.as_bytes(),
+                        &upload_path, upload.expire_after, &key, upload.file_name.as_bytes(),
                         upload.mime_type.as_bytes()).ok()?;
+                if file_name.is_empty() && mime_type == "application/zip" {
+                    file_name = format!("{}_{}.zip", config.app_name, id_string);
+                }
 
                 let body = create_body_for(reader, accessor, db_backend, config);
                 (body, file_name, mime_type)
             },
             None => {
-                let reader = FileReader::new(&upload_path).ok()?;
+                let reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
                 let body = create_body_for(reader, accessor, db_backend, config);
                 (body, upload.file_name, upload.mime_type)
             }

@@ -8,9 +8,3 @@ CREATE TABLE IF NOT EXISTS uploads (
     num_accessors INT,
     expire_after TIMESTAMP NOT NULL
 );
-
--- this table only ever holds 1 row to keep track of storage
-CREATE TABLE IF NOT EXISTS storage_size (
-    id INT PRIMARY KEY,
-    num_bytes BIGINT NOT NULL
-);

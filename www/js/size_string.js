@@ -1,24 +1,23 @@
 // Return a human-readable string representing the given size in bytes
 function sizeString(bytes) {
-    let power = Math.floor(Math.log(bytes) / Math.log(10));
+    let power = Math.floor(Math.log(bytes) / Math.log(1000));
     let decimal = 0.0;
     let unit = "";
-    if (power < 3) {
-        decimal = bytes;
-        unit = "B";
-    } else if (power < 6) {
-        decimal = bytes / Math.pow(10, 3);
-        unit = "kB";
-    } else if (power < 9) {
-        decimal = bytes / Math.pow(10, 6);
-        unit = "MB";
-    } else if (power < 12) {
-        decimal = bytes / Math.pow(10, 9);
-        unit = "GB";
-    } else {
-        decimal = bytes / Math.pow(10, 12);
-        unit = "TB";
+
+    switch (power) {
+        case 0:
+            unit = "B"; break;
+        case 1:
+            unit = "kB"; break;
+        case 2:
+            unit = "MB"; break;
+        case 3:
+            unit = "GB"; break; 
+        default:
+            unit = "TB";
     }
+
+    decimal = bytes / Math.pow(1000, power);
 
     decimal *= 100;
     decimal = Math.trunc(decimal);
