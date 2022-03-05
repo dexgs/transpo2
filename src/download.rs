@@ -82,14 +82,12 @@ pub async fn handle(
 
     for field in query.split('&') {
         if let Some((key, value)) = field.split_once('=') {
-            if !value.is_empty() {
-                match key {
-                    "key" => crypto_key = Some(value.to_owned().into_bytes()),
-                    "password" => password = decode(value)
-                        .ok()
-                        .and_then(|s| Some(s.into_owned().into_bytes())),
-                    _ => return error_400(conn)
-                }
+            match key {
+                "key" => crypto_key = Some(value.to_owned().into_bytes()),
+                "password" => password = decode(value)
+                    .ok()
+                    .and_then(|s| Some(s.into_owned().into_bytes())),
+                _ => return error_400(conn)
             }
         }
     }
@@ -140,6 +138,7 @@ pub async fn handle(
                         &upload_path, upload.expire_after, &key, upload.file_name.as_bytes(),
                         upload.mime_type.as_bytes()).ok()?;
 
+                // If file name is missing, assign one based on the app name and upload ID
                 if file_name.is_empty() {
                     file_name = format!("{}_{}", config.app_name, id_string);
                 }
