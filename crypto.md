@@ -43,4 +43,4 @@ as an unsigned 16-bit integer in big-endian byte order to the form body, and
 then writing the ciphertext itself.
 
 See also:
- * [https://wdeveloper.mozilla.org/en-US/docs/Web/HTTP/Methods/POST#example](multipart POST)
+ * [multipart POST](https://wdeveloper.mozilla.org/en-US/docs/Web/HTTP/Methods/POST#example)
