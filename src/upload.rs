@@ -596,9 +596,6 @@ async fn handle_file_start(
         Some(file_name) => Ok(file_name),
         None => Err(Error::from(ErrorKind::InvalidInput))
     }?;
-    if file_name_str.is_empty() {
-        return Err(Error::new(ErrorKind::InvalidInput, "File name is empty"));
-    }
 
     let mime_type_str = ct;
     // https://datatracker.ietf.org/doc/html/rfc4288#section-4.2
