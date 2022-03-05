@@ -139,8 +139,13 @@ pub async fn handle(
                     EncryptedFileReader::new(
                         &upload_path, upload.expire_after, &key, upload.file_name.as_bytes(),
                         upload.mime_type.as_bytes()).ok()?;
-                if file_name.is_empty() && mime_type == "application/zip" {
-                    file_name = format!("{}_{}.zip", config.app_name, id_string);
+
+                if file_name.is_empty() {
+                    file_name = format!("{}_{}", config.app_name, id_string);
+                }
+
+                if mime_type == "application/zip" {
+                    file_name.push_str(".zip");
                 }
 
                 let body = create_body_for(reader, accessor, db_backend, config);
