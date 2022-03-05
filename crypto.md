@@ -1,6 +1,7 @@
 A client-side encrypted upload should be structured as follows:
 
-Transpo uses 256-bit AES-GCM encryption.
+Transpo uses 256-bit AES-GCM encryption. The nonce used during encryption and
+decryption has all 12 bytes set to 0 because each key is only one time.
 
 The file name should be encrypted first, then the mime type should be encrypted.
 Both the file name and mime type should then be base-64 encoded. To make the
