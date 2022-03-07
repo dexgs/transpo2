@@ -49,6 +49,9 @@ first encrypting a segment of the upload, writing the length of the ciphertext
 as an unsigned 16-bit integer in big-endian byte order to the form body, and
 then writing the ciphertext itself.
 
+See also:
+ * [multipart POST](https://wdeveloper.mozilla.org/en-US/docs/Web/HTTP/Methods/POST#example)
+
 # WebSocket upload
 
 A client-side encrypted upload can also be made over a WebSocket connection.
@@ -71,6 +74,3 @@ instead of in the body of a form.
 
 Unlike when an upload is made using a POST request, uploads made over WebSocket
 connections MUST be encrypted client-side.
-
-See also:
- * [multipart POST](https://wdeveloper.mozilla.org/en-US/docs/Web/HTTP/Methods/POST#example)
