@@ -1,7 +1,12 @@
-const PARAMS = {
+const ENCRYPT_PARAMS = {
     name: "AES-GCM",
     iv: new Uint8Array(12),
     tagLength: 128
+};
+
+const DECRYPT_PARAMS = {
+    name: "AES-GCM",
+    iv: new Uint8Array(12),
 };
 
 // Maximum length of ciphertext to be decrypted at once
@@ -76,17 +81,17 @@ async function decodeKey(b64) {
         bytes[i] = decoded.charCodeAt(i);
     }
 
-    return await crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+    return await crypto.subtle.importKey("raw", bytes, "AES-GCM", true, ["encrypt", "decrypt"]);
 }
 
 // Encrypt plaintext with the given key
 async function encrypt(key, plaintext) {
-    return new Uint8Array(await crypto.subtle.encrypt(PARAMS, key, plaintext));
+    return new Uint8Array(await crypto.subtle.encrypt(ENCRYPT_PARAMS, key, plaintext));
 }
 
 // Decrypt ciphertext using the given key
 async function decrypt(key, ciphertext) {
-    return new Uint8Array(await crypto.subtle.decrypt(PARAMS, key, ciphertext.buffer));
+    return new Uint8Array(await crypto.subtle.decrypt(DECRYPT_PARAMS, key, ciphertext.buffer));
 }
 
 export { maxSegmentSize, genKey, b64Decode, b64Encode, stringToBytes, encodeKey, decodeKey, encrypt, decrypt };
