@@ -132,12 +132,14 @@ function fileDropEvent(e) {
 
 // Add an entry to the "uploaded" list
 function addUploadedListItem(files, id, key) {
-    let listItem = uploadedListItemTemplate.content.cloneNode(true).firstElementChild;
-    let link = listItem.querySelector("A");
-    let fileName = link.querySelector(".uploaded-list-item-file-name");
-    let otherFiles = link.querySelector(".uploaded-list-item-other-files");
-    let copyButton = listItem.querySelector(".uploaded-list-item-copy-url");
-    let removeButton = listItem.querySelector(".uploaded-list-item-remove");
+    const listItem = uploadedListItemTemplate.content.cloneNode(true).firstElementChild;
+    const link = listItem.querySelector("A");
+    const fileName = link.querySelector(".uploaded-list-item-file-name");
+    const otherFiles = link.querySelector(".uploaded-list-item-other-files");
+    const copyButton = listItem.querySelector(".uploaded-list-item-copy-url");
+    const removeButton = listItem.querySelector(".uploaded-list-item-remove");
+
+    listItem.dataset.id = id;
 
     let allFileNames = files[0].name;
     for (let i = 1; i < files.length; i++) {
@@ -157,6 +159,8 @@ function addUploadedListItem(files, id, key) {
     }
 
     uploadedList.appendChild(listItem);
+
+    return listItem;
 }
 
 function copyUploadURL(button) {
@@ -173,6 +177,10 @@ function copyUploadURL(button) {
 }
 
 function removeUploadedListEntry(button) {
+    const id = button.parentElement.dataset.id;
+
+    cancelUpload(id);
+
     button.parentElement.remove();
 }
 

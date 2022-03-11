@@ -334,7 +334,7 @@ impl Read for EncryptedFileReader {
         } else {
             // If there is remaining decrypted data that has yet to be sent
             let len = cmp::min(buf.len(), self.read_end - self.read_start);
-            buf[..len].copy_from_slice(&self.buffer[self.read_start..(self.read_start + len)]);
+            buf[..len].copy_from_slice(&self.buffer[self.read_start..][..len]);
             self.read_start += len;
 
             Ok(len)

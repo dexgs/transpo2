@@ -5,11 +5,15 @@ use crate::constants::*;
 use crate::config::*;
 use crate::files::*;
 use crate::http_errors::*;
+
 use std::io::{Read, Result};
 use std::sync::Arc;
+
 use blocking::*;
-use urlencoding::decode;
 use trillium::{Conn, Body};
+
+use urlencoding::{decode, encode};
+
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 
 
@@ -75,7 +79,7 @@ pub async fn handle(
 
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
 
-    let query = conn.querystring().to_owned();
+    let query = conn.querystring();
     
     let mut crypto_key: Option<Vec<u8>> = None;
     let mut password: Option<Vec<u8>> = None;
@@ -141,11 +145,13 @@ pub async fn handle(
                 // If file name is missing, assign one based on the app name and upload ID
                 if file_name.is_empty() {
                     file_name = format!("{}_{}", config.app_name, id_string);
+
+                    if mime_type == "application/zip" {
+                        file_name.push_str(".zip");
+                    }
                 }
 
-                if mime_type == "application/zip" {
-                    file_name.push_str(".zip");
-                }
+                file_name = encode(&file_name).into_owned();
 
                 let body = create_body_for(reader, accessor, db_backend, config);
                 (body, file_name, mime_type)

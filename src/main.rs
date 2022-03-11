@@ -29,9 +29,18 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use trillium::{Conn, State};
+use trillium_websockets::{WebSocketConn, WebSocketConfig, websocket};
 use trillium_router::{Router, RouterConnExt};
 use trillium_askama::AskamaConnExt;
 use trillium_static::{files, crate_relative_path};
+
+
+const WS_CONFIG: WebSocketConfig = WebSocketConfig {
+    max_send_queue: None,
+    max_message_size: Some(FORM_READ_BUFFER_SIZE * 2),
+    max_frame_size: Some(FORM_READ_BUFFER_SIZE * 2),
+    accept_unmasked_frames: false
+};
 
 #[derive(Clone)]
 struct TranspoState {
@@ -55,6 +64,7 @@ fn main() {
         let config = Arc::new(config);
 
         spawn_cleanup_thread(
+            config.max_upload_age_minutes,
             config.storage_dir.to_owned(),
             db_backend, config.db_url.to_owned());
 
@@ -95,9 +105,16 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let state = conn.take_state::<TranspoState>().unwrap();
 
                     async move {
-                        upload::handle(conn, state.config, db_backend).await
+                        upload::handle_post(conn, state.config, db_backend).await
                     }
                 }))
+                .get("/upload", (State::new(state.clone()), websocket(move |mut conn: WebSocketConn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
+
+                    async move {
+                        drop(upload::handle_websocket(conn, state.config, db_backend).await)
+                    }
+                }).with_protocol_config(WS_CONFIG)))
                 .get("/:file_id", move |conn: Conn| {
                     let file_id = conn.param("file_id").unwrap().to_owned();
                     let app_name = config.app_name.clone();

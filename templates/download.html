@@ -10,7 +10,7 @@
     <body>
         <div id="header">
             <h1 id="title">Download</h1>
-            <a href="../about">about</a>
+            <a href="../about">About</a>
         </div>
         <div class="ui-frame flex-column">
             <form id="download-form" class="flex-column" action="../dl/{{ file_id }}" method="get" enctype="application/x-www-form-urlencoded" autocomplete="off">
@@ -57,5 +57,7 @@
         <script>
             const appName = "{{ app_name }}";
         </script>
+
+        <script type="module" src="js/transpo/download.js"></script>
     </body>
 </html>

@@ -61,7 +61,7 @@ path at which the WebSocket connection is opened
 
 * `minutes` (`int`)
 * `password` (`text`) (optional)
-* `download_limit` (`int`) (optional)
+* `download-limit` (`int`) (optional)
 * `file-name` (`text`)
 * `mime-type` (`text`)
 

@@ -166,6 +166,21 @@ impl Upload {
         }.ok()
     }
 
+    pub fn select_all(db_connection: &DbConnection) -> Option<Vec<i64>> {
+        let select = uploads::table.select(uploads::id);
+
+        match db_connection {
+            #[cfg(feature = "mysql")]
+            DbConnection::MySql(c) => select.load::<i64>(c),
+
+            #[cfg(feature = "postgres")]
+            DbConnection::Pg(c) => select.load::<i64>(c),
+
+            #[cfg(feature = "sqlite")]
+            DbConnection::Sqlite(c) => select.load::<i64>(c)
+        }.ok()
+    }
+
     // Increment the accessor count
     pub fn access(db_connection: &DbConnection, id: i64) -> Option<usize> {
         let target = uploads::table

@@ -1,6 +1,4 @@
-// use crate::concurrency::Accessors;
 use crate::multipart_form::{self, *};
-// use crate::random_bytes::*;
 use crate::b64;
 use crate::files::*;
 use crate::constants::*;
@@ -8,21 +6,27 @@ use crate::config::*;
 use crate::db::*;
 use crate::http_errors::*;
 use crate::templates::*;
+
 use std::{cmp, fs, str};
 use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
 use std::path::PathBuf;
+use rand::{thread_rng, Rng};
+
 use trillium::Conn;
-use trillium_http::ReceivedBody;
-use trillium_http::transport::BoxedTransport;
+use trillium_websockets::{WebSocketConn, Message};
 use trillium_askama::AskamaConnExt;
 use smol::prelude::*;
+use smol::io::{AsyncReadExt};
 use blocking::{unblock, Unblock};
+
 use chrono::offset::Local;
 use chrono::Duration;
+
+use urlencoding::decode;
+
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
-use rand::{thread_rng, Rng};
 
 
 // Make sure storage capacity is not exceeded after reading this many bytes
@@ -186,21 +190,20 @@ enum Writer {
 }
 
 impl Writer {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    async fn write(&mut self, buf: &[u8]) -> Result<()> {
         match self {
             Writer::Basic(writer) => {
                 writer.flush().await?;
-                writer.write(buf).await
+                writer.write_all(buf).await
             },
             Writer::Encrypted(writer) => {
                 writer.flush().await?;
-                writer.write(buf).await
+                writer.write_all(buf).await
             },
             Writer::EncryptedZip(writer) => {
                 writer.flush().await?;
-                writer.write(buf).await
+                writer.write_all(buf).await
             }
-            // Writer::None => Err(Error::from(ErrorKind::Other))
         }
     }
 
@@ -213,8 +216,146 @@ impl Writer {
     }
 }
 
+fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
+    let mut rng = thread_rng();
+    loop {
+        let id = rng.gen();
+        let id_string = String::from_utf8(b64::i64_to_b64_bytes(id)).unwrap();
 
-pub async fn handle(
+        let dir = storage_path.join(&id_string);
+        // This will fail if the directory already exists
+        if fs::create_dir(&dir).is_ok() {
+            return (id, id_string, dir);
+        }
+    }
+}
+
+pub async fn handle_websocket(
+    mut conn: WebSocketConn, config: Arc<TranspoConfig>, db_backend: DbBackend)
+    -> Result<()>
+{
+    let query = conn.querystring();
+
+    let mut minutes: Option<usize> = None;
+    let mut password: Option<String> = None;
+    let mut max_downloads: Option<usize> = None;
+    let mut file_name: Vec<u8> = vec![];
+    let mut mime_type: Vec<u8> = vec![];
+
+    for field in query.split('&') {
+        if let Some((key, value)) = field.split_once('=') {
+            match key {
+                "minutes" => minutes = value.parse().ok(),
+                "password" => password = decode(value).ok().map(|s| s.into_owned()),
+                "max-downloads" => max_downloads = value.parse().ok(),
+                "file-name" => file_name = value.to_owned().into_bytes(),
+                "mime-type" => mime_type = value.to_owned().into_bytes(),
+                _ => {
+                    conn.close().await.map_err(|_| Error::new(
+                            ErrorKind::Other,
+                            "Failed to close websocket gracefully"))?;
+                    return Err(Error::new(ErrorKind::InvalidData, "Invalid query"));
+                }
+            }
+        }
+    }
+
+    if minutes.is_some() && !file_name.is_empty() && !mime_type.is_empty() {
+        let minutes = minutes.unwrap();
+
+        let (upload_id, upload_id_string, upload_dir) = {
+            let storage_path = config.storage_dir.clone();
+            unblock(|| create_upload_storage_dir(storage_path))
+        }.await;
+
+        let upload_path = upload_dir.join("upload");
+
+        conn.send_string(upload_id_string.clone()).await;
+
+        if websocket_read_loop(conn, &upload_path, config.clone()).await.is_ok() {
+            let days = minutes / (60 * 24);
+            let hours = (minutes % (60 * 24)) / 60;
+            let minutes = minutes % 60;
+
+            let mut form = UploadForm::new();
+
+            form.days = Some(days as u16);
+            form.hours = Some(hours as u8);
+            form.minutes = Some(minutes as u8);
+
+            if let Some(max_downloads) = max_downloads {
+                form.enable_max_downloads = Some(true);
+                form.max_downloads = Some(max_downloads as u32);
+            }
+
+            if let Some(password) = password {
+                form.enable_password = Some(true);
+                form.password = Some(password);
+            }
+
+            if write_to_db(
+                form, upload_id, Some(file_name), Some(mime_type),
+                db_backend, config).await.is_some()
+            {
+                return Ok(());
+            }
+        }
+
+        unblock(move || {
+            if upload_dir.exists() {
+                std::fs::remove_dir_all(upload_dir)
+                    .expect("Deleting failed upload");
+            }
+        }).await;
+    }
+
+    Err(Error::new(ErrorKind::Other, "Upload failed"))
+}
+
+async fn websocket_read_loop(
+    mut conn: WebSocketConn, upload_path: &PathBuf,
+    config: Arc<TranspoConfig>) -> Result<()>
+{
+    let inner_writer = FileWriter::new(&upload_path, config.max_upload_size_bytes)?;
+    let mut writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
+    let mut bytes_read_interval = 0;
+
+    while let Some(Ok(msg)) = conn.next().await {
+        match msg {
+            Message::Binary(b) => {
+                if b.len() > FORM_READ_BUFFER_SIZE * 2 {
+                    return Err(Error::new(ErrorKind::InvalidData, "Message too big"));
+                } else {
+                    bytes_read_interval += b.len();
+                    if bytes_read_interval > STORAGE_CHECK_INTERVAL {
+                        bytes_read_interval = 0;
+                        if is_storage_full(config.clone()).await? {
+                            return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+                        }
+                    }
+
+                    writer.write_all(&b).await?;
+                    writer.flush().await?;
+                }
+            },
+            Message::Ping(b) => conn.send(Message::Pong(b)).await
+                .map_err(|_| Error::from(ErrorKind::ConnectionAborted))?,
+            Message::Close(_) => {
+                return Ok(());
+            },
+            _ => {
+                conn.close().await.map_err(|_| Error::new(
+                        ErrorKind::Other,
+                        "Failed to close websocket gracefully"))?;
+                return Err(Error::new(ErrorKind::InvalidData, "Invalid message type"));
+            }
+        }
+    }
+
+    Err(Error::new(ErrorKind::Other, "Websocket not properly closed"))
+}
+
+pub async fn handle_post(
     mut conn: Conn, config: Arc<TranspoConfig>,
     db_backend: DbBackend) -> Conn
 {
@@ -235,19 +376,7 @@ pub async fn handle(
 
     let (upload_id, upload_id_string, upload_dir) = {
         let storage_path = config.storage_dir.clone();
-        unblock(move || {
-            let mut rng = thread_rng();
-            loop {
-                let id = rng.gen();
-                let id_string = String::from_utf8(b64::i64_to_b64_bytes(id)).unwrap();
-
-                let dir = storage_path.join(&id_string);
-                // This will fail if the directory already exists
-                if fs::create_dir(&dir).is_ok() {
-                    return (id, id_string, dir);
-                }
-            }
-        })
+        unblock(|| create_upload_storage_dir(storage_path))
     }.await;
 
     let upload_path = upload_dir.join("upload");
@@ -276,6 +405,7 @@ pub async fn handle(
                    config.clone()).await.is_some()
     {
         if let Some(key) = key {
+            // If the server handled encryption + archiving
             let key_string = String::from_utf8(key).unwrap();
             if conn.headers().has_header("User-Agent") {
                 // If the client is probably a browser
@@ -290,14 +420,15 @@ pub async fn handle(
                 conn
                     .with_status(200)
                     .with_header("Content-Type", "application/json")
-                    .with_body(format!("\"{}#{}\"", upload_id, key_string))
+                    .with_body(format!("\"{}#{}\"", upload_id_string, key_string))
                     .halt()
             }
         } else {
+            // If the client handled encryption + archiving
             conn
                 .with_status(200)
                 .with_header("Content-Type", "application/json")
-                .with_body(format!("\"{}\"", upload_id))
+                .with_body(format!("\"{}\"", upload_id_string))
                 .halt()
         }
     } else {
@@ -318,12 +449,12 @@ async fn is_storage_full(config: Arc<TranspoConfig>) -> Result<bool> {
     }).await
 }
 
-async fn parse_upload_request(
-    mut req_body: ReceivedBody<'_, BoxedTransport>, boundary: String, upload_path: &PathBuf,
-    form: &mut UploadForm,
-    file_writer: &mut Option<Writer>, key: &mut Option<Vec<u8>>,
-    file_name: &mut Option<Vec<u8>>, mime_type: &mut Option<Vec<u8>>,
-    config: Arc<TranspoConfig>) -> Result<bool>
+async fn parse_upload_request<R>(
+    mut req_body: R, boundary: String, upload_path: &PathBuf,
+    form: &mut UploadForm, file_writer: &mut Option<Writer>,
+    key: &mut Option<Vec<u8>>, file_name: &mut Option<Vec<u8>>,
+    mime_type: &mut Option<Vec<u8>>, config: Arc<TranspoConfig>) -> Result<bool>
+where R: AsyncReadExt + Unpin
 {
     if is_storage_full(config.clone()).await? {
         return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
@@ -337,8 +468,8 @@ async fn parse_upload_request(
     let mut read_start = 2;
 
     let mut field_type = FormField::Invalid;
-    // Form fields other than files are expected to fit in this buffer. If they
-    // do not, error 400 will be returned.
+    // Form fields other than files are expected to fit in this buffer.
+    // If they do not, error 400 will be returned.
     let mut field_buf = [0; FORM_FIELD_BUFFER_SIZE];
     let mut field_write_start = 0;
 
@@ -522,7 +653,7 @@ async fn parse_upload_request(
                     break 'outer;
                 },
                 ParseResult::NeedMoreData => {
-                    if parse_start == 0 {
+                    if parse_start == 0 && buf.len() == FORM_READ_BUFFER_SIZE {
                         // The buffer is not big enough for another read. *very*
                         // unlikely to happen for a legitimate upload and not
                         // possible to handle without allocating arbitrary
@@ -545,7 +676,9 @@ async fn parse_upload_request(
 
         // The buffer may contain incomplete data at the end, so we copy it to
         // the front of the buffer and make sure it doesn't get read over
-        buf.copy_within(parse_start.., 0);
+        if parse_start != 0 {
+            buf.copy_within(parse_start.., 0);
+        }
         read_start = buf.len() - parse_start;
     }
 
