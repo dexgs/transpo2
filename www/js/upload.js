@@ -87,7 +87,14 @@ async function upload(e) {
     } else {
         urlPrefix = "ws://";
     }
-    url = urlPrefix + location.host + location.pathname + "/upload";
+
+    url = urlPrefix + location.host + location.pathname;
+
+    if (location.pathname.endsWith("/") {
+        url = url + "upload";
+    } else {
+        url = url + "/upload";
+    }
 
     obj.socket = await transpoUpload(
         url, files, minutes, maxDownloads, password, obj,
