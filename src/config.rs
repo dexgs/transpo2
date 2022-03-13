@@ -135,7 +135,7 @@ impl TranspoConfig {
                     continue;
                 },
                 "-h" | "--help" => {
-                    println!("{HELP_MSG}");
+                    println!("{}", HELP_MSG);
                     std::process::exit(1);
                 }
                 _ => continue

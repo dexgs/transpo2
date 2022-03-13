@@ -1,6 +1,6 @@
 use std::io::{Result, Error, ErrorKind, BufWriter, Write, Read, BufReader};
 use std::path::PathBuf;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::str;
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
@@ -27,7 +27,7 @@ pub struct FileWriter {
 impl FileWriter {
     pub fn new(path: &PathBuf, max_upload_size: usize) -> Result<Self>
     {
-        let file = File::options()
+        let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(path)?;

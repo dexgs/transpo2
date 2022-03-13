@@ -43,7 +43,7 @@ fn cleanup_thread(
                             let age_minutes = age.as_secs() as usize / 60;
                             if age_minutes > max_upload_age_minutes {
                                 if let Err(e) = std::fs::remove_dir_all(path) {
-                                    eprintln!("{e}");
+                                    eprintln!("{}", e);
                                 }
                             }
                         }
