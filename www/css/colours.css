@@ -15,14 +15,14 @@
     --remove-button-fg: crimson;
     --remove-button-bg: white;
 
-    --file-button-bg: steelblue;
+    --file-button-bg: #2171bf;
     --file-button-fg: white;
 
-    --upload-button-bg: #3e87ce;
+    --upload-button-bg: #2171bf;
     --upload-button-fg: white;
     --upload-button-border: #133366;
 
-    --download-button-bg: #3e87ce;
+    --download-button-bg: #2171bf;
     --download-button-fg: white;
     --download-button-border: #133366;
 
@@ -30,11 +30,11 @@
     --progress-bar-fg: steelblue;
     --progress-bar-border: steelblue;
 
-    --upload-url-fg: steelblue;
+    --upload-url-fg: #2171bf;
     --upload-failed-fg: white;
     --upload-failed-bg: crimson;
 
-    --copy-url-button-bg: steelblue;
+    --copy-url-button-bg: #2171bf;
     --copy-url-button-fg: white;
 
     --warning-bg: #ffd557;
