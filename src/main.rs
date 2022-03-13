@@ -38,7 +38,7 @@ use trillium_askama::AskamaConnExt;
 use trillium_static::{files, crate_relative_path};
 
 
-const X_FORWARDED_FOR: &'static str = "X-Forwarded-For";
+const X_REAL_IP: &'static str = "X-Real-IP";
 
 const WS_CONFIG: WebSocketConfig = WebSocketConfig {
     max_send_queue: None,
@@ -87,7 +87,7 @@ fn get_quotas_data(quotas: Option<Quotas>, headers: &Headers) -> Option<(Quotas,
 
 fn addr_from_headers(headers: &Headers) -> Option<IpAddr> {
     headers
-        .get_str(X_FORWARDED_FOR)
+        .get_str(X_REAL_IP)
         .and_then(|a| a.parse().ok())
 }
 
