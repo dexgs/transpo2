@@ -1,5 +1,9 @@
 // Return a human-readable string representing the given size in bytes
 function sizeString(bytes) {
+    if (bytes == 0) {
+        return "0B";
+    }
+
     let power = Math.floor(Math.log(bytes) / Math.log(1000));
     let decimal = 0.0;
     let unit = "";

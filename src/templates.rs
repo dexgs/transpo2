@@ -71,15 +71,3 @@ pub struct DownloadTemplate {
     pub file_id: String,
     pub app_name: String
 }
-
-/*
-impl UploadLinkTemplate {
-    pub fn new(app_name: String, upload_url: String, upload_id: String) -> Self {
-        Self {
-            app_name: app_name,
-            upload_url: upload_url,
-            upload_id: upload_id
-        }
-    }
-}
-*/

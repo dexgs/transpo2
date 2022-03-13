@@ -1,4 +1,10 @@
-import { maxCiphertextSegmentSize, b64Decode, stringToBytes, decrypt, decodeKey } from "./crypto.js";
+// DO NOT USE THIS UNLESS YOU HAVE TO...
+//
+// This is a version of the `download.js` file in the same directory which is not
+// an ES6 module. The reason is that the functions from this file are needed in
+// a service worker, but not every browser (looking at you, firefox) supports
+// ES6 modules in web workers/service workers.
+
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -175,11 +181,3 @@ async function download(url) {
 
     await downloadResponse(decryptedResponse, uploadID);
 }
-
-if (typeof window != typeof undefined) {
-    window.transpoDownload = download;
-    window.transpoGetKeyFromURL = getKeyFromURL;
-    window.transpoGetUploadIDFromURL = getUploadIDFromURL;
-}
-
-export { getKeyFromURL, getUploadIDFromURL, decryptResponse, download, downloadResponse };

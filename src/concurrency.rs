@@ -37,13 +37,6 @@ impl Accessor {
     }
 }
 
-/*
-impl Drop for Accessor {
-    fn drop(&mut self) {
-        self.revoke();
-    }
-}
-*/
 
 #[derive(Clone)]
 pub struct Accessors (Arc<Mutex<HashMap<i64, (usize, Arc<Mutex<()>>)>>>);
@@ -53,7 +46,6 @@ impl Accessors {
         Self (Arc::new(Mutex::new(HashMap::new())))
     }
 
-    // pub fn access(&self, id: i64, must_be_new: bool) -> Option<Accessor> {
     pub fn access(&self, id: i64, db_connection_info: DbConnectionInfo) -> Accessor {
         let db_connection = establish_connection_info(&db_connection_info);
         Upload::access(&db_connection, id)
@@ -61,7 +53,12 @@ impl Accessors {
         let mut map = self.0.lock().unwrap();
         match map.get_mut(&id) {
             Some((rc, mtx)) => {
-                let mtx = mtx.clone();
+                // Set a new mutex if the current one is poisoned
+                let mtx = if mtx.lock().is_ok() {
+                    mtx.clone()
+                } else {
+                    Arc::new(Mutex::new(()))
+                };
                 *rc += 1;
                 let accessor = Accessor {
                     parent: self.clone(),

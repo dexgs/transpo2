@@ -1,3 +1,10 @@
+// DO NOT USE THIS UNLESS YOU HAVE TO...
+//
+// This is a version of the `crypto.js` file in the same directory which is not
+// an ES6 module. The reason is that the functions from this file are needed in
+// a service worker, but not every browser (looking at you, firefox) supports
+// ES6 modules in web workers/service workers.
+
 const PARAMS = {
     name: "AES-GCM",
     iv: new Uint8Array(12),
@@ -90,5 +97,3 @@ async function encrypt(key, plaintext) {
 async function decrypt(key, ciphertext) {
     return new Uint8Array(await crypto.subtle.decrypt(PARAMS, key, ciphertext));
 }
-
-export { maxPlaintextSegmentSize, maxCiphertextSegmentSize, genKey, b64Decode, b64Encode, stringToBytes, encodeKey, decodeKey, encrypt, decrypt };

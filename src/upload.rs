@@ -6,11 +6,13 @@ use crate::config::*;
 use crate::db::*;
 use crate::http_errors::*;
 use crate::templates::*;
+use crate::quotas::*;
 
 use std::{cmp, fs, str};
 use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
 use std::path::PathBuf;
+use std::net::IpAddr;
 use rand::{thread_rng, Rng};
 
 use trillium::Conn;
@@ -231,8 +233,8 @@ fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
 }
 
 pub async fn handle_websocket(
-    mut conn: WebSocketConn, config: Arc<TranspoConfig>, db_backend: DbBackend)
-    -> Result<()>
+    mut conn: WebSocketConn, config: Arc<TranspoConfig>,
+    db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
 {
     let query = conn.querystring();
 
@@ -272,7 +274,10 @@ pub async fn handle_websocket(
 
         conn.send_string(upload_id_string.clone()).await;
 
-        if websocket_read_loop(conn, &upload_path, config.clone()).await.is_ok() {
+        let upload_result = websocket_read_loop(
+            conn, &upload_path, config.clone(), quotas_data).await;
+
+        if upload_result.is_ok() {
             let days = minutes / (60 * 24);
             let hours = (minutes % (60 * 24)) / 60;
             let minutes = minutes % 60;
@@ -313,8 +318,8 @@ pub async fn handle_websocket(
 }
 
 async fn websocket_read_loop(
-    mut conn: WebSocketConn, upload_path: &PathBuf,
-    config: Arc<TranspoConfig>) -> Result<()>
+    mut conn: WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
+    quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
 {
     let inner_writer = FileWriter::new(&upload_path, config.max_upload_size_bytes)?;
     let mut writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
@@ -323,7 +328,11 @@ async fn websocket_read_loop(
     while let Some(Ok(msg)) = conn.next().await {
         match msg {
             Message::Binary(b) => {
-                if b.len() > FORM_READ_BUFFER_SIZE * 2 {
+                if let Some(true) = quotas_data.as_ref().map(
+                    |(q, a)| q.exceeds_quota(a, b.len()))
+                {
+                    return Err(Error::new(ErrorKind::Other, "Quota exceeded"));
+                } else if b.len() > FORM_READ_BUFFER_SIZE * 2 {
                     return Err(Error::new(ErrorKind::InvalidData, "Message too big"));
                 } else {
                     bytes_read_interval += b.len();
@@ -357,7 +366,7 @@ async fn websocket_read_loop(
 
 pub async fn handle_post(
     mut conn: Conn, config: Arc<TranspoConfig>,
-    db_backend: DbBackend) -> Conn
+    db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Conn
 {
     // Get the boundary of the multi-part form
     let boundary = match get_boundary(&conn) {
@@ -390,9 +399,9 @@ pub async fn handle_post(
 
     let req_body = conn.request_body().await;
 
-    let parse_result = parse_upload_request(
+    let parse_result = parse_upload_form(
         req_body, boundary, &upload_path, &mut form, &mut file_writer, &mut key,
-        &mut file_name, &mut mime_type, config.clone()).await;
+        &mut file_name, &mut mime_type, config.clone(), quotas_data).await;
 
     let upload_success = match parse_result {
         Ok(result) => result,
@@ -449,11 +458,12 @@ async fn is_storage_full(config: Arc<TranspoConfig>) -> Result<bool> {
     }).await
 }
 
-async fn parse_upload_request<R>(
+async fn parse_upload_form<R>(
     mut req_body: R, boundary: String, upload_path: &PathBuf,
     form: &mut UploadForm, file_writer: &mut Option<Writer>,
     key: &mut Option<Vec<u8>>, file_name: &mut Option<Vec<u8>>,
-    mime_type: &mut Option<Vec<u8>>, config: Arc<TranspoConfig>) -> Result<bool>
+    mime_type: &mut Option<Vec<u8>>, config: Arc<TranspoConfig>,
+    quotas_data: Option<(Quotas, IpAddr)>) -> Result<bool>
 where R: AsyncReadExt + Unpin
 {
     if is_storage_full(config.clone()).await? {
@@ -478,6 +488,12 @@ where R: AsyncReadExt + Unpin
     'outer: while let Ok(bytes_read) = req_body.read(&mut buf[read_start..]).await {
         if bytes_read == 0 {
             break 'outer;
+        }
+
+        if let Some(true) = quotas_data.as_ref().map(
+            |(q, a)| q.exceeds_quota(a, bytes_read))
+        {
+            return Err(Error::new(ErrorKind::Other, "Quota exceeded"));
         }
 
         bytes_read_interval += bytes_read;

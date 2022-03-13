@@ -11,6 +11,7 @@ mod constants;
 mod db;
 mod cleanup;
 // mod rate_limit; not used for now...
+mod quotas;
 mod http_errors;
 
 #[macro_use]
@@ -24,16 +25,20 @@ use b64::*;
 use templates::*;
 use concurrency::*;
 use cleanup::*;
+use quotas::*;
 
 use std::env;
 use std::fs;
 use std::sync::Arc;
-use trillium::{Conn, State};
+use std::net::IpAddr;
+use trillium::{Conn, Headers, State};
 use trillium_websockets::{WebSocketConn, WebSocketConfig, websocket};
 use trillium_router::{Router, RouterConnExt};
 use trillium_askama::AskamaConnExt;
 use trillium_static::{files, crate_relative_path};
 
+
+const X_FORWARDED_FOR: &'static str = "X-Forwarded-For";
 
 const WS_CONFIG: WebSocketConfig = WebSocketConfig {
     max_send_queue: None,
@@ -45,7 +50,8 @@ const WS_CONFIG: WebSocketConfig = WebSocketConfig {
 #[derive(Clone)]
 struct TranspoState {
     config: Arc<TranspoConfig>,
-    accessors: Accessors
+    accessors: Accessors,
+    quotas: Option<Quotas>
 }
 
 fn main() {
@@ -75,14 +81,36 @@ fn main() {
     }
 }
 
+fn get_quotas_data(quotas: Option<Quotas>, headers: &Headers) -> Option<(Quotas, IpAddr)> {
+    quotas.and_then(|q| Some((q, addr_from_headers(headers)?)))
+}
+
+fn addr_from_headers(headers: &Headers) -> Option<IpAddr> {
+    headers
+        .get_str(X_FORWARDED_FOR)
+        .and_then(|a| a.parse().ok())
+}
+
 fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
+    env_logger::init();
+
     let index = IndexTemplate::from(config.as_ref());
     let about = AboutTemplate::from(config.as_ref());
+    let quotas = if config.quota_bytes == 0 {
+        None
+    } else {
+        Some(Quotas::from(config.as_ref()))
+    };
     let accessors = Accessors::new();
+
+    if let Some(quotas) = quotas.clone() {
+        spawn_quotas_thread(quotas);
+    }
 
     let state = TranspoState {
         config: config.clone(),
-        accessors: accessors.clone()
+        accessors: accessors.clone(),
+        quotas: quotas.clone(),
     };
 
     trillium_smol::config()
@@ -98,21 +126,25 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let about = about.clone();
                     async move { conn.render(about).halt() }
                 })
+                .get("/download_worker.js", files(crate_relative_path!("www/js")))
                 .get("/js/*", files(crate_relative_path!("www/js")))
                 .get("/css/*", files(crate_relative_path!("www/css")))
+                .get("/res/*", files(crate_relative_path!("www/res")))
                 .get("/templates/*", files(crate_relative_path!("templates")))
                 .post("/upload", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
+                    let quotas_data = get_quotas_data(state.quotas, conn.headers());
 
                     async move {
-                        upload::handle_post(conn, state.config, db_backend).await
+                        upload::handle_post(conn, state.config, db_backend, quotas_data).await
                     }
                 }))
                 .get("/upload", (State::new(state.clone()), websocket(move |mut conn: WebSocketConn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
+                    let quotas_data = get_quotas_data(state.quotas, conn.headers());
 
                     async move {
-                        drop(upload::handle_websocket(conn, state.config, db_backend).await)
+                        drop(upload::handle_websocket(conn, state.config, db_backend, quotas_data).await)
                     }
                 }).with_protocol_config(WS_CONFIG)))
                 .get("/:file_id", move |conn: Conn| {
@@ -127,7 +159,7 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         }
                     }
                 })
-                .get("/dl/:file_id", (State::new(state.clone()), move |mut conn: Conn| {
+                .get("/:file_id/dl", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
                     let file_id = conn.param("file_id").unwrap().to_owned();
 

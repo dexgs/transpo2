@@ -1,4 +1,4 @@
-import { maxSegmentSize, b64Encode, encrypt, genKey, encodeKey } from "./crypto.js";
+import { maxPlaintextSegmentSize, b64Encode, encrypt, genKey, encodeKey } from "./crypto.js";
 import { downloadZip } from "./client-zip/index.js";
 
 const textEncoder = new TextEncoder("utf-8");
@@ -39,7 +39,7 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
                 }
             }
 
-            segmentEnd = Math.min(segmentStart + maxSegmentSize, filePlaintext.length);
+            segmentEnd = Math.min(segmentStart + maxPlaintextSegmentSize, filePlaintext.length);
 
             const segmentPlaintext = filePlaintext.subarray(segmentStart, segmentEnd);
             const segmentCiphertext = await encrypt(key, segmentPlaintext);
@@ -60,13 +60,17 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
 }
 
 async function readToSocket(socket, reader) {
-    const { done, value } = await reader.read();
-    if (done) {
-        socket.close();
-    } else if (socket.readyState == 1) {
-        socket.send(value.buffer);
-        setTimeout(async () => { await readToSocket(socket, reader) }, 0);
+    for (let i = 0; i < 100; i++) {
+        const { done, value } = await reader.read();
+        if (done) {
+            socket.close();
+            return;
+        } else if (socket.readyState == 1) {
+            socket.send(value.buffer);
+        }
     }
+
+    setTimeout(async () => { await readToSocket(socket, reader) }, 0);
 }
 
 // Open a websocket connection over which a file will be uploaded. This function
@@ -198,5 +202,9 @@ async function upload(
     return socket;
 }
 
-window.transpoUpload = upload;
+
+if (typeof window != typeof undefined) {
+    window.transpoUpload = upload;
+}
+
 export { upload };

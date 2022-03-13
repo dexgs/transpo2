@@ -207,7 +207,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::dsl::num_accessors.eq(uploads::dsl::num_accessors - 1));
 
-        match db_connection {
+        let result = match db_connection {
             #[cfg(feature = "mysql")]
             DbConnection::MySql(c) => update.execute(c),
 
@@ -216,7 +216,9 @@ impl Upload {
 
             #[cfg(feature = "sqlite")]
             DbConnection::Sqlite(c) => update.execute(c)
-        }.ok()
+        };
+
+        result.ok()
     }
 
     pub fn num_accessors(db_connection: &DbConnection, id: i64) -> Option<i32> {
@@ -283,9 +285,13 @@ pub fn establish_connection(db_backend: DbBackend, db_url: &str) -> DbConnection
             .expect("Establishing PostgreSQL connection")),
 
             #[cfg(feature = "sqlite")]
-        DbBackend::Sqlite => DbConnection::Sqlite(
-            SqliteConnection::establish(&db_url)
-            .expect("Establishing SQLite connection"))
+        DbBackend::Sqlite => {
+            let connection = SqliteConnection::establish(&db_url)
+                .expect("Establishing SQLite connection");
+            connection.execute("PRAGMA busy_timeout = 15000;")
+                .expect("Setting busy timeout");
+            DbConnection::Sqlite(connection)
+        }
     }
 }
 

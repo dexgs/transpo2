@@ -2,14 +2,23 @@
 <html>
     <head>
         <meta charset="UTF-8"/>
-        <link rel="stylesheet" href="../css/styles.css"/>
-        <link rel="stylesheet" href="../css/custom/styles.css"/>
+
+        <link rel="stylesheet" href="css/layout.css"/>
+        <link rel="stylesheet" href="css/custom/layout.css"/>
+
+        <link rel="stylesheet" href="css/colours.css"/>
+        <link rel="stylesheet" href="css/custom/colours.css"/>
+
+        <link rel="stylesheet" href="css/styles.css"/>
+        <link rel="stylesheet" href="css/custom/styles.css"/>
+
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <title>{{ app_name }} | Your Upload</title>
     </head>
     <body>
         <div id="header">
             <h1 id="title">Your Upload</h1>
+            <a href="../about">About<span class="hidden"> {{ app_name }}</span></a>
         </div>
         <div class="ui-frame flex-column">
             <a href="{{ upload_url }}" class="upload-link"/>

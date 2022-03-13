@@ -2,8 +2,16 @@
 <html>
     <head>
         <meta charset="UTF-8"/>
+
+        <link rel="stylesheet" href="css/layout.css"/>
+        <link rel="stylesheet" href="css/custom/layout.css"/>
+
+        <link rel="stylesheet" href="css/colours.css"/>
+        <link rel="stylesheet" href="css/custom/colours.css"/>
+
         <link rel="stylesheet" href="css/styles.css"/>
         <link rel="stylesheet" href="css/custom/styles.css"/>
+
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <title>{{ app_name }}</title>
     </head>
@@ -163,7 +171,7 @@ ul#uploaded-list > li.failed > a::before {
                 <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
                     Copy URL
                 </button>
-                <a class="flex-no-expand">
+                <a class="flex-no-expand" target="_blank">
                     <span class="uploaded-list-item-file-name"></span>
                     <span class="uploaded-list-item-other-files">
                         + <output></output> more

@@ -1,0 +1,70 @@
+:root {
+    --shadow: rgba(0, 0, 0, 0.2);
+    --page-bg: white;
+
+    --text-fg: #0a173e;
+
+    --file-area-bg: aliceblue;
+    --file-area-border: steelblue;
+
+    --uploaded-area-bg: aliceblue;
+    --uploaded-area-border: steelblue;
+
+    --ui-bg: white;
+
+    --remove-button-fg: crimson;
+    --remove-button-bg: white;
+
+    --file-button-bg: steelblue;
+    --file-button-fg: white;
+
+    --upload-button-bg: #3e87ce;
+    --upload-button-fg: white;
+    --upload-button-border: #133366;
+
+    --download-button-bg: #3e87ce;
+    --download-button-fg: white;
+    --download-button-border: #133366;
+
+    --progress-bar-bg: transparent;
+    --progress-bar-fg: steelblue;
+    --progress-bar-border: steelblue;
+
+    --upload-url-fg: steelblue;
+    --upload-failed-fg: white;
+    --upload-failed-bg: crimson;
+
+    --copy-url-button-bg: steelblue;
+    --copy-url-button-fg: white;
+
+    --warning-bg: #ffd557;
+    --warning-fg: black;
+    --warning-border: goldenrod;
+
+    --header-link-fg: cornflowerblue;
+    --upload-link-fg: cornflowerblue;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --shadow: black;
+
+        --page-bg: #030d22;
+
+        --text-fg: aliceblue;
+
+        --ui-bg: #1f2d48;
+
+        --file-area-bg: #354564;
+
+        --uploaded-area-bg: #354564;
+
+        --remove-button-fg: #fb5274;
+        --remove-button-bg: transparent;
+
+        --progress-bar-fg: #98d0ff;
+        --progress-bar-border: #98d0ff;
+
+        --upload-url-fg: #98d0ff;
+    }
+}
