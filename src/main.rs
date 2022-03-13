@@ -123,7 +123,7 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     async move { 
                         conn
                             .render(index)
-                            .with_header("Clear-Site-Data", "storage")
+                            .with_header("Clear-Site-Data", "\"storage\"")
                             .halt()
                     }
                 })
@@ -132,7 +132,7 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     async move { 
                         conn
                             .render(about)
-                            .with_header("Clear-Site-Data", "storage")
+                            .with_header("Clear-Site-Data", "\"storage\"")
                             .halt()
                     }
                 })
@@ -165,7 +165,7 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         if file_id.len() == base64_encode_length(ID_LENGTH) {
                             conn
                                 .render(DownloadTemplate { file_id: file_id, app_name: app_name })
-                                .with_header("Clear-Site-Data", "storage")
+                                .with_header("Clear-Site-Data", "\"storage\"")
                                 .halt()
                         } else {
                             http_errors::error_404(conn)
