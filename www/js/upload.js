@@ -90,7 +90,7 @@ async function upload(e) {
 
     url = urlPrefix + location.host + location.pathname;
 
-    if (location.pathname.endsWith("/") {
+    if (location.pathname.endsWith("/")) {
         url = url + "upload";
     } else {
         url = url + "/upload";
