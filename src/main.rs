@@ -120,11 +120,21 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
             Router::new()
                 .get("/", move |conn: Conn| {
                     let index = index.clone();
-                    async move { conn.render(index).halt() }
+                    async move { 
+                        conn
+                            .render(index)
+                            .with_header("Clear-Site-Data", "storage")
+                            .halt()
+                    }
                 })
                 .get("/about", move |conn: Conn| {
                     let about = about.clone();
-                    async move { conn.render(about).halt() }
+                    async move { 
+                        conn
+                            .render(about)
+                            .with_header("Clear-Site-Data", "storage")
+                            .halt()
+                    }
                 })
                 .get("/download_worker.js", files(crate_relative_path!("www/js")))
                 .get("/js/*", files(crate_relative_path!("www/js")))
@@ -153,7 +163,10 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
 
                     async move {
                         if file_id.len() == base64_encode_length(ID_LENGTH) {
-                            conn.render(DownloadTemplate { file_id: file_id, app_name: app_name })
+                            conn
+                                .render(DownloadTemplate { file_id: file_id, app_name: app_name })
+                                .with_header("Clear-Site-Data", "storage")
+                                .halt()
                         } else {
                             http_errors::error_404(conn)
                         }
