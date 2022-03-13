@@ -163,8 +163,14 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
 
                     async move {
                         if file_id.len() == base64_encode_length(ID_LENGTH) {
+                            let template = DownloadTemplate {
+                                file_id,
+                                app_name,
+                                has_password: conn.querystring() != "nopass"
+                            };
+
                             conn
-                                .render(DownloadTemplate { file_id: file_id, app_name: app_name })
+                                .render(template)
                                 .with_header("Clear-Site-Data", "\"storage\"")
                                 .halt()
                         } else {

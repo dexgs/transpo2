@@ -46,6 +46,7 @@
                     <hr/>
                 </noscript>
 
+                {% if has_password %}
                 <div class="flex-row">
                     <label for="password-input">Password: </label>
                     <input id="password-input" name="password" type="text"/>
@@ -56,6 +57,7 @@
                         protected.
                     </span>
                 </div>
+                {% endif %}
 
                 <button id="download-button">Download</button>
             </form>

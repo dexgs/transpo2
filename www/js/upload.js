@@ -37,8 +37,8 @@ function progressCallback(id, bytes, obj) {
     }
 }
 
-function idCallback(id, key, obj) {
-    obj.listItem = addUploadedListItem(obj.files, id, key);
+function idCallback(id, key, maxDownloads, password, obj) {
+    obj.listItem = addUploadedListItem(obj.files, id, key, password !== null);
     obj.progressBar = obj.listItem.querySelector("PROGRESS");
     sockets[id] = obj.socket;
 }

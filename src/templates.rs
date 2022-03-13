@@ -48,7 +48,7 @@ impl From<&TranspoConfig> for IndexTemplate {
 pub struct UploadLinkTemplate {
     pub app_name: String,
     pub upload_url: String,
-    pub upload_id: String
+    pub upload_id: String,
 }
 
 #[derive(Template, Clone)]
@@ -69,5 +69,6 @@ impl From<&TranspoConfig> for AboutTemplate {
 #[template(path = "download.html")]
 pub struct DownloadTemplate {
     pub file_id: String,
-    pub app_name: String
+    pub app_name: String,
+    pub has_password: bool
 }

@@ -182,6 +182,10 @@ impl UploadForm {
             }
         }
     }
+
+    fn is_password_protected(&self) -> bool {
+        self.enable_password.unwrap_or(false) && self.password.is_some()
+    }
 }
 
 
@@ -408,6 +412,7 @@ pub async fn handle_post(
         Err(_) => false
     };
 
+    let is_password_protected = form.is_password_protected();
     // Respond to the client
     if upload_success
     && write_to_db(form, upload_id.clone(), file_name, mime_type, db_backend,
@@ -418,9 +423,15 @@ pub async fn handle_post(
             let key_string = String::from_utf8(key).unwrap();
             if conn.headers().has_header("User-Agent") {
                 // If the client is probably a browser
+                let upload_url = if is_password_protected {
+                    format!("{}#{}", upload_id_string, key_string)
+                } else {
+                    format!("{}?nopass#{}", upload_id_string, key_string)
+                };
+
                 let template = UploadLinkTemplate {
                     app_name: config.app_name.clone(),
-                    upload_url: format!("{}#{}", upload_id_string, key_string),
+                    upload_url: upload_url,
                     upload_id: upload_id_string,
                 };
                 conn.render(template).halt()
@@ -830,8 +841,7 @@ async fn write_to_db(
     let file_name = String::from_utf8(file_name?).ok()?;
     let mime_type = String::from_utf8(mime_type?).ok()?;
 
-    let password_protected = form.enable_password.unwrap_or(false);
-    let password_hash = if password_protected {
+    let password_hash = if form.is_password_protected() {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         let hash = argon2.hash_password(form.password?.as_bytes(), &salt).ok()?

@@ -103,6 +103,8 @@ async function readToSocket(socket, reader) {
 // `idCallback` is called with 3 arguments:
 //   - A string containing the ID of the upload
 //   - A string containing the cryptographic key for the upload
+//   - The value of `maxDownloads` with which `upload` was called
+//   - The value of `password` with which `upload` was called
 //   - `obj`
 //
 // `errorCallback` is called with 3 arguments:
@@ -183,7 +185,7 @@ async function upload(
         }
 
         if (typeof idCallback !== typeof undefined) {
-            idCallback(id, encodedKey, obj);
+            idCallback(id, encodedKey, maxDownloads, password, obj);
         }
 
         const stream = await encryptStream(
