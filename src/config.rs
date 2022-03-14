@@ -8,10 +8,11 @@ Transpo accepts configuration options, either as command line arguments or as
 environment variables. The available options are as follows:
 
 (This list is formatted as `argument/environment variable <value>: description`)
- -a / TRANSPO_MAX_UPLOAD_AGE_MINUTES <number>     : maximum time in minutes before uploads expire
- -u / TRANSPO_MAX_UPLOAD_SIZE_BYTES  <number>     : maximum size allowed for a single upload
- -s / TRANSPO_MAX_STORAGE_SIZE_BYTES <number>     : maximum total size of all uploads currently stored
- -p / TRANSPO_PORT                   <number>     : port to which Transpo will bind
+
+ -a / TRANSPO_MAX_UPLOAD_AGE_MINUTES     <number> : maximum time in minutes before uploads expire
+ -u / TRANSPO_MAX_UPLOAD_SIZE_BYTES      <number> : maximum size allowed for a single upload
+ -s / TRANSPO_MAX_STORAGE_SIZE_BYTES     <number> : maximum total size of all uploads currently stored
+ -p / TRANSPO_PORT                       <number> : port to which Transpo will bind
  -c / TRANSPO_COMPRESSION_LEVEL      <number 0-9> : gzip compression level to use when creating zip archives
  -q / TRANSPO_QUOTA_BYTES                <number> : maximum number of bytes a single IP address can upload
                                                     within the quota interval. (set to 0 to disable)
