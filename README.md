@@ -87,6 +87,8 @@ features on which it depends are only available from a secure context.
 Here is a simple NGINX configuration example:
 (replace BACKEND-HOST with the host/port at which Transpo is reachable)
 ```nginx
+real_ip_header X-Real-IP;
+
 location / {
   proxy_pass http://BACKEND-HOST;
 }
