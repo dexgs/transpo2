@@ -3,11 +3,11 @@ const downloadButton = document.getElementById("download-button");
 
 async function setup() {
     if ("serviceWorker" in navigator) {
+        downloadButton.disabled = true;
+        downloadButton.classList.add("throbber");
+
         navigator.serviceWorker.register("./download_worker.js").then(
             async registration => {
-                downloadButton.disabled = true;
-                downloadButton.classList.add("throbber");
-
                 registration = await registration.update();
 
                 downloadButton.classList.remove("throbber");
@@ -34,6 +34,9 @@ async function setup() {
             error => {
                 console.error(error);
                 downloadForm.addEventListener("submit", downloadEventHandler);
+
+                downloadButton.classList.remove("throbber");
+                downloadButton.disabled = false;
             }
         );
     } else {
