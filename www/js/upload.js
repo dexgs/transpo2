@@ -72,14 +72,15 @@ async function upload(e) {
         password = null;
     }
 
-    let obj = {};
-    obj.bytesUploaded = 0;
-    obj.uploadSize = uploadSize;
-    obj.files = files;
-    obj.socket = null;
-    obj.listItem = null;
-    obj.progressBar = null;
-    obj.isCompleted = false;
+    let obj = {
+        bytesUploaded: 0,
+        uploadSize: uploadSize,
+        files: files,
+        socket: null,
+        listItem: null,
+        progressBar: null,
+        isCompleted: false
+    };
 
     let urlPrefix;
     if (location.protocol === 'https:') {
