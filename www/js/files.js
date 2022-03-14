@@ -21,6 +21,15 @@ document.addEventListener("dragover", e => e.preventDefault());
 document.addEventListener("drop", fileDropEvent);
 
 
+function copyArray(array) {
+    let newArray = [];
+    console.log(array);
+
+    array.forEach(element => { newArray.push(element) });
+
+    return newArray;
+}
+
 function addFilesToUpload(files) {
     let newFiles = Array.from(files);
     let oldFiles = Array.from(filesToUpload);
@@ -41,7 +50,7 @@ function addFilesToUpload(files) {
 
     uploadSize = newUploadSize;
     filesToUpload = newList.files;
-    fileInput.files = structuredClone(newList.files);
+    fileInput.files = copyArray(newList.files);
 }
 
 // When the value of the file list is changed, instead of replacing previously
@@ -106,7 +115,7 @@ function fileRemoveEvent(index) {
     oldFiles.forEach(file => newList.items.add(file));
 
     filesToUpload = newList.files;
-    fileInput.files = structuredClone(newList.files);
+    fileInput.files = copyArray(newList.files);
 
     updateFileList();
 }
@@ -116,7 +125,7 @@ function clearAllFiles() {
 
     uploadSize = 0;
     filesToUpload = newList.files;
-    fileInput.files = structuredClone(newList.files);
+    fileInput.files = copyArray(newList.files);
 
     updateFileList();
 }
