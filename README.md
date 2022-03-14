@@ -27,42 +27,42 @@ the format: `command-line argument` / `environment variable` `<type>` with a
 description in a sub-item
 
 - `-a` / `TRANSPO_MAX_UPLOAD_AGE_MINUTES` `<number>`
- - The maximum amount of time in minutes with which an upload may be configured
-   before it expires.
+  - The maximum amount of time in minutes with which an upload may be configured
+    before it expires.
 
 - `-u` / `TRANSPO_MAX_UPLOAD_SIZE_BYTES` `<number>`
- - The maximum size of an upload in bytes.
+  - The maximum size of an upload in bytes.
 
 - `-s` / `TRANSPO_MAX_STORAGE_SIZE_BYTES` `<number>`
- - The maximum total size of all uploads currently stored in bytes.
+  - The maximum total size of all uploads currently stored in bytes.
 
 - `-p` / `TRANSPO_PORT` `<number>`
- - The port to which Transpo will bind.
+  - The port to which Transpo will bind.
 
 - `-c` / `TRANSPO_COMPRESSION_LEVEL` `<number from 0 to 9 (inclusive)>`
- - The gzip compression level Transpo will use when creating Zip archives on
-   the server. (0 disabled compression)
+  - The gzip compression level Transpo will use when creating Zip archives on
+    the server. (0 disabled compression)
 
 - `-q` / `TRANSPO_QUOTA_BYTES` `<number>`
- - The maximum number of bytes allowed to be uploaded by a single IP address
-   within the given quota time period. (0 disables quotas)
+  - The maximum number of bytes allowed to be uploaded by a single IP address
+    within the given quota time period. (0 disables quotas)
 
 - `-i` / `TRANSPO_QUOTA_INTEVAL_MINUTES` `<number>`
- - The interval after which upload quotas will be cleared in minutes.
+  - The interval after which upload quotas will be cleared in minutes.
 
 - `-t` / `TRANSPO_READ_TIMEOUT_MILLISECONDS` `<number>`
- - Timeout in milliseconds before which a client must fill a read buffer/send a
-   WebSocket message in order to keep the connection open. This is used to let
-   the server close idle connections.
+  - Timeout in milliseconds before which a client must fill a read buffer/send a
+    WebSocket message in order to keep the connection open. This is used to let
+    the server close idle connections.
 
 - `-d` / `TRANSPO_STORAGE_DIRECTORY` `<path>`
- - The path to the directory in which Transpo will store uploads.
+  - The path to the directory in which Transpo will store uploads.
 
 - `-D` / `TRANSPO_DATABASE_URL` `<path (for SQLite) or URL (for MySQL and PgSQL)>`
- - The connection string for the database Transpo will use
+  - The connection string for the database Transpo will use
 
 - `-n` / `TRANSPO_APP_NAME` `<string>`
- - Name shown throughout the web interface.
+  - Name shown throughout the web interface.
 
 The Transpo executable itself will print this information and exit if it is
 called with the `-h` or `--help` command line arguments.
