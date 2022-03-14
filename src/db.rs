@@ -98,7 +98,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => select.load::<Upload>(c),
+            DbConnection::Mysql(c) => select.load::<Upload>(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => select.load::<Upload>(c),
@@ -119,7 +119,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => update.execute(c),
+            DbConnection::Mysql(c) => update.execute(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => update.execute(c),
@@ -137,7 +137,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => delete.execute(c),
+            DbConnection::Mysql(c) => delete.execute(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => delete.execute(c),
@@ -156,7 +156,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => select.load::<i64>(c),
+            DbConnection::Mysql(c) => select.load::<i64>(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => select.load::<i64>(c),
@@ -171,7 +171,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => select.load::<i64>(c),
+            DbConnection::Mysql(c) => select.load::<i64>(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => select.load::<i64>(c),
@@ -190,7 +190,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => update.execute(c),
+            DbConnection::Mysql(c) => update.execute(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => update.execute(c),
@@ -209,7 +209,7 @@ impl Upload {
 
         let result = match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => update.execute(c),
+            DbConnection::Mysql(c) => update.execute(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => update.execute(c),
@@ -228,7 +228,7 @@ impl Upload {
 
         match db_connection {
             #[cfg(feature = "mysql")]
-            DbConnection::MySql(c) => select.load::<i32>(c),
+            DbConnection::Mysql(c) => select.load::<i32>(c),
 
             #[cfg(feature = "postgres")]
             DbConnection::Pg(c) => select.load::<i32>(c),
