@@ -13,14 +13,19 @@ use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
 use std::path::PathBuf;
 use std::net::IpAddr;
+use std::time;
 use rand::{thread_rng, Rng};
 
 use trillium::Conn;
 use trillium_websockets::{WebSocketConn, Message};
 use trillium_askama::AskamaConnExt;
+
 use smol::prelude::*;
 use smol::io::{AsyncReadExt};
+
 use blocking::{unblock, Unblock};
+
+use smol_timeout::TimeoutExt;
 
 use chrono::offset::Local;
 use chrono::Duration;
@@ -325,11 +330,20 @@ async fn websocket_read_loop(
     mut conn: WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
     quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
 {
+    if is_storage_full(config.clone()).await? {
+        return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+    }
+
+    let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
     let inner_writer = FileWriter::new(&upload_path, config.max_upload_size_bytes)?;
     let mut writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
     let mut bytes_read_interval = 0;
 
-    while let Some(Ok(msg)) = conn.next().await {
+    while let Some(Ok(msg)) = conn
+        .next()
+        .timeout(timeout_duration).await
+        .flatten()
+    {
         match msg {
             Message::Binary(b) => {
                 if let Some(true) = quotas_data.as_ref().map(
@@ -481,6 +495,7 @@ where R: AsyncReadExt + Unpin
         return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
     }
 
+    let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
     let mut upload_success = false;
     let mut buf = [0; FORM_READ_BUFFER_SIZE];
     let boundary_byte_map = byte_map(boundary.as_bytes());
@@ -496,7 +511,10 @@ where R: AsyncReadExt + Unpin
 
     let mut bytes_read_interval = 0;
 
-    'outer: while let Ok(bytes_read) = req_body.read(&mut buf[read_start..]).await {
+    'outer: while let Some(Ok(bytes_read)) = req_body
+        .read(&mut buf[read_start..])
+        .timeout(timeout_duration).await
+    {
         if bytes_read == 0 {
             break 'outer;
         }

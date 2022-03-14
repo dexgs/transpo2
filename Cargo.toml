@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 blocking = "1.1"
 smol = "1.2"
+smol-timeout = "0.6"
 trillium = "0.2"
 trillium-smol = "0.2"
 trillium-router = "0.3"

@@ -263,7 +263,7 @@ dependencies = [
  "futures-io",
  "futures-util",
  "log",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "tungstenite",
 ]
 
@@ -633,7 +633,7 @@ dependencies = [
  "futures-io",
  "memchr",
  "parking",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "waker-fn",
 ]
 
@@ -670,7 +670,7 @@ dependencies = [
  "futures-macro",
  "futures-sink",
  "futures-task",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "pin-utils",
  "slab",
 ]
@@ -762,7 +762,7 @@ checksum = "1ff4f84919677303da5f147645dbea6b1881f368d03ac84e1dc09031ebd7b2c6"
 dependencies = [
  "bytes",
  "http",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
 ]
 
 [[package]]
@@ -805,7 +805,7 @@ dependencies = [
  "httparse",
  "httpdate",
  "itoa",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "socket2",
  "tokio",
  "tower-service",
@@ -1195,6 +1195,12 @@ dependencies = [
 
 [[package]]
 name = "pin-project-lite"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "257b64915a082f7811703966789728173279bdebb956b143dbcd23f6f970a777"
+
+[[package]]
+name = "pin-project-lite"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e280fbe77cc62c91527259e9442153f4688736748d24660126286329742b4c6c"
@@ -1363,7 +1369,7 @@ dependencies = [
  "mime",
  "native-tls",
  "percent-encoding 2.1.0",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -1568,6 +1574,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "smol-timeout"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "847d777e2c6c166bad26264479e80a9820f3d364fcb4a0e23cd57bbfa8e94961"
+dependencies = [
+ "async-io",
+ "pin-project-lite 0.1.12",
+]
+
+[[package]]
 name = "socket2"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1704,7 +1720,7 @@ dependencies = [
  "libc",
  "memchr",
  "mio",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "tokio-macros",
  "winapi",
 ]
@@ -1740,7 +1756,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "log",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "tokio",
 ]
 
@@ -1766,7 +1782,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d8d93354fe2a8e50d5953f5ae2e47a3fc2ef03292e7ea46e3cc38f549525fb9"
 dependencies = [
  "cfg-if",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "tracing-core",
 ]
 
@@ -1793,6 +1809,7 @@ dependencies = [
  "env_logger",
  "rand",
  "smol",
+ "smol-timeout",
  "streaming-zip",
  "trillium",
  "trillium-askama",
@@ -1868,7 +1885,7 @@ dependencies = [
  "atomic-waker",
  "futures-lite",
  "log",
- "pin-project-lite",
+ "pin-project-lite 0.2.8",
  "rlimit",
  "trillium",
  "trillium-http",

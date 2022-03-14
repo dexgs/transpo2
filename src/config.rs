@@ -10,15 +10,17 @@ environment variables. The available options are as follows:
 (This list is formatted as `argument/environment variable <value>: description`)
  -a / TRANSPO_MAX_UPLOAD_AGE_MINUTES <number>     : maximum time in minutes before uploads expire
  -u / TRANSPO_MAX_UPLOAD_SIZE_BYTES  <number>     : maximum size allowed for a single upload
- -s / TRANSPO_MAX_STORAGE_SIZE_BYTES <number>     : maximum 
+ -s / TRANSPO_MAX_STORAGE_SIZE_BYTES <number>     : maximum total size of all uploads currently stored
  -p / TRANSPO_PORT                   <number>     : port to which Transpo will bind
  -c / TRANSPO_COMPRESSION_LEVEL      <number 0-9> : gzip compression level to use when creating zip archives
- -q / TRANSPO_QUOTA_BYTES            <number>     : maximum number of bytes a single IP address can upload
+ -q / TRANSPO_QUOTA_BYTES                <number> : maximum number of bytes a single IP address can upload
                                                     within the quota interval. (set to 0 to disable)
- -i / TRANSPO_QUOTA_INTEVAL_MINUTES  <number>     : number of minutes before quotas are reset
- -d / TRANSPO_STORAGE_DIRECTORY      <path>       : path to the directory where Transpo will store uploads
- -D / TRANSPO_DATABASE_URL           <path/url>   : URL to which database connections will be made
- -n / TRANSPO_APP_NAME               <string>     : name shown in web interface
+ -i / TRANSPO_QUOTA_INTERVAL_MINUTES     <number> : number of minutes before quotas are reset
+ -t / TRANSPO_READ_TIMEOUT_MILLISECONDS  <number> : number of milliseconds before which each read must
+                                                    complete or else the upload is aborted
+ -d / TRANSPO_STORAGE_DIRECTORY            <path> : path to the directory where Transpo will store uploads
+ -D / TRANSPO_DATABASE_URL             <path/url> : URL to which database connections will be made
+ -n / TRANSPO_APP_NAME                   <string> : name shown in web interface
  -h /                                             : print this help message and exit
 ";
 
@@ -32,6 +34,7 @@ pub struct TranspoConfig {
     pub compression_level: usize,
     pub quota_bytes: usize,
     pub quota_interval_minutes: usize,
+    pub read_timeout_milliseconds: usize,
     pub storage_dir: PathBuf,
     pub db_url: String,
     pub app_name: String,
@@ -55,6 +58,8 @@ impl Default for TranspoConfig {
             quota_bytes: 0,
             // 1 Hour
             quota_interval_minutes: 60,
+
+            read_timeout_milliseconds: 5,
 
             storage_dir: PathBuf::from("./transpo_storage"),
 
@@ -80,6 +85,7 @@ impl TranspoConfig {
                 "TRANSPO_COMPRESSION_LEVEL" => &mut self.compression_level,
                 "TRANSPO_QUOTA_BYTES" => &mut self.quota_bytes,
                 "TRANSPO_QUOTA_INTERVAL_MINUTES" => &mut self.quota_interval_minutes,
+                "TRANSPO_READ_TIMEOUT_MILLISECONDS" => &mut self.read_timeout_milliseconds,
                 "TRANSPO_STORAGE_DIRECTORY" => {
                     self.storage_dir = PathBuf::from(val.as_ref());
                     continue;
@@ -116,6 +122,7 @@ impl TranspoConfig {
                 "-c" => &mut self.compression_level,
                 "-q" => &mut self.quota_bytes,
                 "-i" => &mut self.quota_interval_minutes,
+                "-t" => &mut self.read_timeout_milliseconds,
                 "-d" => {
                     if let Some(next) = args.peek() {
                         self.storage_dir = PathBuf::from(next.as_ref());
