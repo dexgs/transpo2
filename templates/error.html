@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8"/>
+
+        <link rel="stylesheet" href="css/layout.css"/>
+        <link rel="stylesheet" href="css/custom/layout.css"/>
+
+        <link rel="stylesheet" href="css/colours.css"/>
+        <link rel="stylesheet" href="css/custom/colours.css"/>
+
+        <link rel="stylesheet" href="css/styles.css"/>
+        <link rel="stylesheet" href="css/custom/styles.css"/>
+
+
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>{{ app_name }} | Error {{ error_code }}</title>
+    </head>
+    <body>
+        <div id="header">
+            <h1 id="title">Error {{ error_code }}</h1>
+        </div>
+        <div class="ui-frame flex-column">
+            {{ message }}
+        </div>
+    </body>
+</html>

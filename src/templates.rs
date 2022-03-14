@@ -72,3 +72,11 @@ pub struct DownloadTemplate {
     pub app_name: String,
     pub has_password: bool
 }
+
+#[derive(Template, Clone)]
+#[template(path = "error.html")]
+pub struct ErrorTemplate {
+    pub error_code: usize,
+    pub message: String,
+    pub app_name: String
+}

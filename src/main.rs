@@ -157,9 +157,10 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         drop(upload::handle_websocket(conn, state.config, db_backend, quotas_data).await)
                     }
                 }).with_protocol_config(WS_CONFIG)))
-                .get("/:file_id", move |conn: Conn| {
+                .get("/:file_id", (State::new(state.clone()), move |mut conn: Conn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
                     let file_id = conn.param("file_id").unwrap().to_owned();
-                    let app_name = config.app_name.clone();
+                    let app_name = state.config.app_name.clone();
 
                     async move {
                         if file_id.len() == base64_encode_length(ID_LENGTH) {
@@ -174,10 +175,10 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                                 .with_header("Clear-Site-Data", "\"storage\"")
                                 .halt()
                         } else {
-                            http_errors::error_404(conn)
+                            http_errors::error_404(conn, state.config)
                         }
                     }
-                })
+                }))
                 .get("/:file_id/dl", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
                     let file_id = conn.param("file_id").unwrap().to_owned();

@@ -74,7 +74,7 @@ pub async fn handle(
     accessors: Accessors, db_backend: DbBackend) -> Conn
 {
     if id_string.len() != base64_encode_length(ID_LENGTH) {
-        return error_404(conn);
+        return error_404(conn, config);
     }
 
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
@@ -91,80 +91,83 @@ pub async fn handle(
                 "password" => password = decode(value)
                     .ok()
                     .and_then(|s| Some(s.into_owned().into_bytes())),
-                _ => return error_400(conn)
+                _ => return error_400(conn, config)
             }
         }
     }
 
-    let response: Option<(Body, String, String)> = unblock(move || {
-        let db_connection = establish_connection(db_backend, &config.db_url);
-        let upload = {
-            let mut accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
-            let lock = accessor.mtx.clone();
-            let guard = lock.lock().unwrap();
-            let row = Upload::select_with_id(id, &db_connection)?;
+    let response: Option<(Body, String, String)> = {
+        let config = config.clone();
+        unblock(move || {
+            let db_connection = establish_connection(db_backend, &config.db_url);
+            let upload = {
+                let mut accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
+                let lock = accessor.mtx.clone();
+                let guard = lock.lock().unwrap();
+                let row = Upload::select_with_id(id, &db_connection)?;
 
-            // If the row is expired and we are the only accessor, clean it up!
-            let upload = if row.is_expired() {
-                if accessor.is_only_accessor() {
-                    Upload::delete_with_id(accessor.id, &db_connection);
-                    delete_upload_dir(&config.storage_dir, accessor.id);
+                // If the row is expired and we are the only accessor, clean it up!
+                let upload = if row.is_expired() {
+                    if accessor.is_only_accessor() {
+                        Upload::delete_with_id(accessor.id, &db_connection);
+                        delete_upload_dir(&config.storage_dir, accessor.id);
+                    }
+                    None
+                } else {
+                    Some(row)
+                };
+
+                accessor.revoke();
+                drop(guard);
+
+                upload
+            }?;
+
+
+            // validate password
+            let password_hash = upload.password_hash
+                .and_then(|h| Some(String::from_utf8(h).unwrap()));
+            if let Some(password_hash) = password_hash {
+                let parsed_hash = PasswordHash::new(&password_hash).ok()?;
+                Argon2::default().verify_password(&password?, &parsed_hash).ok()?;
+            }
+
+            Upload::decrement_remaining_downloads(id, &db_connection)?;
+
+
+            let accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
+            let upload_path = config.storage_dir.join(&id_string).join("upload");
+            let (body, file_name, mime_type) = match crypto_key {
+                Some(key) => {
+                    let (reader, mut file_name, mime_type) =
+                        EncryptedFileReader::new(
+                            &upload_path, upload.expire_after, &key, upload.file_name.as_bytes(),
+                            upload.mime_type.as_bytes()).ok()?;
+
+                    // If file name is missing, assign one based on the app name and upload ID
+                    if file_name.is_empty() {
+                        file_name = format!("{}_{}", config.app_name, id_string);
+
+                        if mime_type == "application/zip" {
+                            file_name.push_str(".zip");
+                        }
+                    }
+
+                    file_name = encode(&file_name).into_owned();
+
+                    let body = create_body_for(reader, accessor, db_backend, config);
+                    (body, file_name, mime_type)
+                },
+                None => {
+                    let reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
+                    let body = create_body_for(reader, accessor, db_backend, config);
+                    (body, upload.file_name, upload.mime_type)
                 }
-                None
-            } else {
-                Some(row)
             };
 
-            accessor.revoke();
-            drop(guard);
-
-            upload
-        }?;
-
-
-        // validate password
-        let password_hash = upload.password_hash
-            .and_then(|h| Some(String::from_utf8(h).unwrap()));
-        if let Some(password_hash) = password_hash {
-            let parsed_hash = PasswordHash::new(&password_hash).ok()?;
-            Argon2::default().verify_password(&password?, &parsed_hash).ok()?;
-        }
-
-        Upload::decrement_remaining_downloads(id, &db_connection)?;
-
-
-        let accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
-        let upload_path = config.storage_dir.join(&id_string).join("upload");
-        let (body, file_name, mime_type) = match crypto_key {
-            Some(key) => {
-                let (reader, mut file_name, mime_type) =
-                    EncryptedFileReader::new(
-                        &upload_path, upload.expire_after, &key, upload.file_name.as_bytes(),
-                        upload.mime_type.as_bytes()).ok()?;
-
-                // If file name is missing, assign one based on the app name and upload ID
-                if file_name.is_empty() {
-                    file_name = format!("{}_{}", config.app_name, id_string);
-
-                    if mime_type == "application/zip" {
-                        file_name.push_str(".zip");
-                    }
-                }
-
-                file_name = encode(&file_name).into_owned();
-
-                let body = create_body_for(reader, accessor, db_backend, config);
-                (body, file_name, mime_type)
-            },
-            None => {
-                let reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
-                let body = create_body_for(reader, accessor, db_backend, config);
-                (body, upload.file_name, upload.mime_type)
-            }
-        };
-
-        Some((body, file_name, mime_type))
-    }).await;
+            Some((body, file_name, mime_type))
+        }).await
+    };
 
     if let Some((body, file_name, mime_type)) = response {
         conn
@@ -176,7 +179,7 @@ pub async fn handle(
                          format!("attachment; filename=\"{}\"", file_name))
             .halt()
     } else {
-        error_400(conn)
+        error_400(conn, config)
     }
 }
 
