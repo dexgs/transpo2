@@ -97,11 +97,15 @@ input#file-input::file-selector-button {
     border-radius: 5px;
 }
 
-input::file-selector-button, button.uploaded-list-item-copy-url {
+input::file-selector-button, button.uploaded-list-item-copy-url,
+button.file-list-item-remove, button.uploaded-list-item-remove,
+button#clear-files-button {
     transition: all 0.1s;
 }
 
-input::file-selector-button:active, button.uploaded-list-item-copy-url:active {
+input::file-selector-button:active, button.uploaded-list-item-copy-url:active,
+button.file-list-item-remove:active, button.uploaded-list-item-remove:active,
+button#clear-files-button:active {
     transform: scale(0.9);
 }
 
