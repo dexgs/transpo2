@@ -171,9 +171,15 @@ async function download(url) {
     const uploadID = getUploadIDFromURL();
 
     const response = await fetch(url);
-    const decryptedResponse = await decryptResponse(response, key, uploadID);
 
-    await downloadResponse(decryptedResponse, uploadID);
+    if (response.ok) {
+        const decryptedResponse = await decryptResponse(response, key, uploadID);
+        await downloadResponse(decryptedResponse, uploadID);
+
+        return true;
+    } else {
+        return false;
+    }
 }
 
 if (typeof window != typeof undefined) {

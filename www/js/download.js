@@ -49,18 +49,19 @@ async function setup(updateWorker) {
 }
 
 async function downloadEventHandler(e) {
-    e.preventDefault();
-
     downloadButton.disabled = true;
     downloadButton.classList.add("throbber");
 
     const pathElements = location.pathname.split("/");
-    await transpoDownload(location.pathname.concat("/dl"));
+    const success = await transpoDownload(location.pathname.concat("/dl"));
 
     downloadButton.classList.remove("throbber");
     downloadButton.disabled = false;
 
-    return false;
+    if (success) {
+        e.preventDefault();
+        return false;
+    }
 }
 
 
