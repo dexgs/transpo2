@@ -8,6 +8,8 @@ async function setup(updateWorker) {
 
         navigator.serviceWorker.register("./download_worker.js").then(
             async registration => {
+                downloadForm.removeEventListener("submit", downloadEventHandler);
+
                 if (updateWorker) {
                     registration = await registration.update();
                 }
