@@ -160,7 +160,7 @@ async function upload(
         url = url.concat("&max-downloads=", maxDownloads.toString());
     }
 
-    if (typeof downloadLimit !== typeof undefined && password != null) {
+    if (typeof password !== typeof undefined && password != null) {
         url = url.concat("&password=", encodeURIComponent(password));
     }
 

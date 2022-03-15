@@ -53,7 +53,7 @@ async function upload(e) {
         return;
     }
 
-    const minutes = 
+    const minutes =
         (~~formData.get("days")) * (24 * 60)
         + (~~formData.get("hours")) * 60
         + (~~formData.get("minutes"));
@@ -66,7 +66,7 @@ async function upload(e) {
     }
 
     let password;
-    if (formData.get("enable-password")) {
+    if (formData.get("enable-password") == "on") {
         password = formData.get("password");
     } else {
         password = null;
