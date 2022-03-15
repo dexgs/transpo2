@@ -32,7 +32,8 @@ pub const fn base64_encode_length(num_bytes: usize) -> usize {
         0 => 0,
         1 => 2,
         2 => 3,
-        _ => panic!("This branch is impossible to reach")
+        // This branch is impossible to reach
+        _ => 0
     }
 }
 
@@ -44,7 +45,8 @@ pub const fn base64_decode_length(num_bytes: usize) -> Option<usize> {
         1 => { return None }
         2 => 1,
         3 => 2,
-        _ => panic!("This branch is impossible to reach")
+        // This branch is impossible to reach
+        _ => { return None }
     })
 }
 
