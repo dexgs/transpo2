@@ -23,7 +23,8 @@ async function setup(updateWorker) {
             // in browser
             const msg = {
                 key: key,
-                uploadID: uploadID
+                uploadID: uploadID,
+                appName: appName
             };
 
             if (registration.installing) {

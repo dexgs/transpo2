@@ -26,7 +26,7 @@ function getUploadIDFromURL() {
     return uploadID;
 }
 
-function generateFileName(uploadID) {
+function generateFileName(uploadID, mime) {
     let name = appName.concat("_", uploadID);
 
     if (mime == "application/zip") {
@@ -115,12 +115,14 @@ async function decryptResponse(response, key, uploadID) {
     const nameBytes = await decrypt(key, nameCipherBytes);
     const mimeBytes = await decrypt(key, mimeCipherBytes);
 
-    const mime = encodeURIComponent(textDecoder.decode(mimeBytes));
+    const mime = textDecoder.decode(mimeBytes);
 
-    let name = textDecoder.decode(nameBytes);
-    // assign a file name if the upload is unnamed
-    if (name.length == 0) {
-        name = generateFileName(uploadID);
+    let name;
+    if (nameBytes.length == 0) {
+        // assign a file name if the upload is unnamed
+        name = generateFileName(uploadID, mime);
+    } else {
+        name = textDecoder.decode(nameBytes);
     }
 
     name = encodeURIComponent(name);
@@ -150,7 +152,7 @@ async function downloadResponse(response, uploadID) {
 
     // assign a file name if the upload is unnamed
     if (name.length == 0) {
-        name = generateFileName(uploadID);
+        name = generateFileName(uploadID, mime);
     }
 
     const blob = await response.blob();

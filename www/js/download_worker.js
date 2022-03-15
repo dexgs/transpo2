@@ -1,9 +1,10 @@
-self.importScripts("./js/transpo/crypto_worker.js");
-self.importScripts("./js/transpo/download_worker.js");
+self.importScripts("./js/transpo/crypto_for_worker.js");
+self.importScripts("./js/transpo/download_for_worker.js");
 
 
 let key;
 let uploadID;
+let appName;
 
 self.addEventListener("activate", e => {
   e.waitUntil(clients.claim());
@@ -16,6 +17,7 @@ self.addEventListener("install", e => {
 self.addEventListener("message", e => {
     key = e.data.key;
     uploadID = e.data.uploadID;
+    appName = e.data.appName;
 });
 
 self.addEventListener("fetch", e => {
