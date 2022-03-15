@@ -1,3 +1,4 @@
 /target
 /transpo_storage
 /www/*/custom/*
+docker-compose.yml
