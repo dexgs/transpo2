@@ -2,6 +2,7 @@
 FROM alpine:latest
 
 ARG TRANSPO_STORAGE_DIRECTORY
+ARG FEATURES
 
 ENV TRANSPO_STORAGE_DIRECTORY ${TRANSPO_STORAGE_DIRECTORY:-./transpo_storage}
 
@@ -13,7 +14,7 @@ RUN mkdir -p ${TRANSPO_STORAGE_DIRECTORY}
 RUN chown -R transpo:transpo ${TRANSPO_STORAGE_DIRECTORY}
 
 RUN apk add cargo gcc sqlite-dev libpq-dev mariadb-connector-c-dev
-RUN cargo build --release --all-features
+RUN cargo build --release --features $FEATURES
 
 USER transpo
 CMD ./target/release/transpo2
