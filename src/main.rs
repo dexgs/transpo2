@@ -187,5 +187,12 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         download::handle(conn, file_id, state.config, state.accessors, db_backend).await
                     }
                 }))
+                .get("*", (State::new(state.clone()), move |mut conn: Conn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
+
+                    async move {
+                        http_errors::error_404(conn, state.config)
+                    }
+                }))
         );
 }

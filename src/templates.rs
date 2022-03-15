@@ -78,5 +78,6 @@ pub struct DownloadTemplate {
 pub struct ErrorTemplate {
     pub error_code: usize,
     pub message: String,
-    pub app_name: String
+    pub app_name: String,
+    pub path_prefix: String
 }
