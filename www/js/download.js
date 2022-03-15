@@ -70,3 +70,4 @@ async function downloadEventHandler(e) {
 
 
 window.addEventListener("pageshow", async () => { await setup(true) });
+downloadForm.addEventListener("submit", async () => { await setup(false) });
