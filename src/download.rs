@@ -87,7 +87,11 @@ pub async fn handle(
     for field in query.split('&') {
         if let Some((key, value)) = field.split_once('=') {
             match key {
-                "key" => crypto_key = Some(value.to_owned().into_bytes()),
+                "key" => {
+                    if value.len() == base64_encode_length(32) {
+                        crypto_key = Some(value.to_owned().into_bytes())
+                    }
+                },
                 "password" => password = decode(value)
                     .ok()
                     .and_then(|s| Some(s.into_owned().into_bytes())),
