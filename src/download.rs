@@ -88,7 +88,7 @@ pub async fn handle(
         if let Some((key, value)) = field.split_once('=') {
             match key {
                 "key" => {
-                    if value.len() == base64_encode_length(32) {
+                    if value.len() == base64_encode_length(256 / 8) {
                         crypto_key = Some(value.to_owned().into_bytes())
                     }
                 },
