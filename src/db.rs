@@ -1,8 +1,8 @@
 use diesel::prelude::*;
 use diesel_migrations::*;
 use chrono::{NaiveDateTime, Local};
+use std::path::Path;
 
-embed_migrations!();
 
 pub enum DbConnection {
     #[cfg(feature = "mysql")]
@@ -240,20 +240,34 @@ impl Upload {
 }
 
 
+fn get_migrations<C, P>(db_connection: &C, path: P) -> Vec<Box<dyn Migration + 'static>>
+where C: connection::MigrationConnection,
+      P: AsRef<Path> {
+    mark_migrations_in_directory(db_connection, path.as_ref())
+        .unwrap()
+        .into_iter()
+        .filter_map(|(m, is_applied)| if is_applied { None } else { Some(m) })
+        .collect()
+}
+
 pub fn run_migrations(db_connection: &DbConnection) {
     let stdout = &mut std::io::stdout();
     match db_connection {
         #[cfg(feature = "mysql")]
-        DbConnection::Mysql(c) =>
-            embedded_migrations::run_with_output(c, stdout),
-
-            #[cfg(feature = "postgres")]
-        DbConnection::Pg(c) =>
-            embedded_migrations::run_with_output(c, stdout),
-
-            #[cfg(feature = "sqlite")]
-        DbConnection::Sqlite(c) =>
-            embedded_migrations::run_with_output(c, stdout)
+        DbConnection::Mysql(c) => {
+            let migrations: Vec<_> = get_migrations(c, "migrations");
+            diesel_migrations::run_migrations(c, migrations, stdout)
+        },
+        #[cfg(feature = "postgres")]
+        DbConnection::Pg(c) => {
+            let migrations: Vec<_> = get_migrations(c, "pg_migrations");
+            diesel_migrations::run_migrations(c, migrations, stdout)
+        },
+        #[cfg(feature = "sqlite")]
+        DbConnection::Sqlite(c) => {
+            let migrations: Vec<_> = get_migrations(c, "migrations");
+            diesel_migrations::run_migrations(c, migrations, stdout)
+        }
     }.expect("Running database migrations");
 }
 
