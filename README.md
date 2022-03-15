@@ -102,3 +102,7 @@ location /upload {
   proxy_pass http://BACKEND-HOST/upload;
 }
 ```
+
+## Docker
+Copy `docker-compose.default.yml` to `docker-compose.yml` to make configuration
+changes that will not be overwritten by an update.
