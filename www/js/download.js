@@ -1,14 +1,16 @@
 const downloadForm = document.getElementById("download-form");
 const downloadButton = document.getElementById("download-button");
 
-async function setup() {
+async function setup(updateWorker) {
     if ("serviceWorker" in navigator) {
         downloadButton.disabled = true;
         downloadButton.classList.add("throbber");
 
         navigator.serviceWorker.register("./download_worker.js").then(
             async registration => {
-                registration = await registration.update();
+                if (updateWorker) {
+                    registration = await registration.update();
+                }
 
                 downloadButton.classList.remove("throbber");
                 downloadButton.disabled = false;
@@ -60,4 +62,5 @@ async function downloadEventHandler(e) {
 }
 
 
-window.addEventListener("pageshow", setup);
+window.addEventListener("pageshow", async () => { await setup(true); });
+downloadForm.addEventListener("submit", async () => { await setup(false); });
