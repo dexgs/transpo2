@@ -136,7 +136,6 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                 .get("/js/*", files(crate_relative_path!("www/js")))
                 .get("/css/*", files(crate_relative_path!("www/css")))
                 .get("/res/*", files(crate_relative_path!("www/res")))
-                .get("/templates/*", files(crate_relative_path!("templates")))
                 .post("/upload", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
                     let quotas_data = get_quotas_data(state.quotas, conn.headers());
