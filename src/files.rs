@@ -49,18 +49,11 @@ impl Write for FileWriter {
             return Err(other_error());
         }
 
-        self.writer.write_all(bytes)?;
-        Ok(bytes.len())
+        self.writer.write(bytes)
     }
 
     fn flush(&mut self) -> Result<()> {
         self.writer.flush()
-    }
-}
-
-impl Drop for FileWriter {
-    fn drop(&mut self) {
-        drop(self.writer.flush());
     }
 }
 
