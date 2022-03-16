@@ -121,7 +121,6 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     async move { 
                         conn
                             .render(index)
-                            .with_header("Clear-Site-Data", "\"storage\"")
                             .halt()
                     }
                 })
@@ -130,7 +129,6 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     async move { 
                         conn
                             .render(about)
-                            .with_header("Clear-Site-Data", "\"storage\"")
                             .halt()
                     }
                 })
@@ -170,7 +168,6 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
 
                             conn
                                 .render(template)
-                                .with_header("Clear-Site-Data", "\"storage\"")
                                 .halt()
                         } else {
                             http_errors::error_404(conn, state.config)
