@@ -182,6 +182,15 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         download::handle(conn, file_id, state.config, state.accessors, db_backend).await
                     }
                 }))
+                .get("/clear-data", move |conn: Conn| {
+                    async move {
+                        conn
+                            .with_status(200)
+                            .with_header("Clear-Site-Data", "\"storage\"")
+                            .with_body("Cleared site data (including service worker)")
+                            .halt()
+                    }
+                })
                 .get("*", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
 
