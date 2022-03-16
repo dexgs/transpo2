@@ -109,6 +109,12 @@ button#clear-files-button:active {
     transform: scale(0.9);
 }
 
+
+span.file-list-item-size, output#upload-size-output {
+    font-size: large;
+    font-family: monospace;
+}
+
 button#clear-files-button {
     border: 1px solid;
     border-radius: 5px;
