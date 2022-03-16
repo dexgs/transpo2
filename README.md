@@ -88,13 +88,13 @@ Here is a simple NGINX configuration example:
 (replace BACKEND-HOST with the host/port at which Transpo is reachable)
 ```nginx
 real_ip_header X-Real-IP;
+proxy_http_version 1.1;
 
 location / {
   proxy_pass http://BACKEND-HOST;
 }
 
 location /upload {
-  proxy_http_version 1.1;
   client_max_body_size 5G;
   proxy_set_header Upgrade $http_upgrade;
   proxy_set_header Connection "upgrade";
