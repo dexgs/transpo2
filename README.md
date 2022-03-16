@@ -18,7 +18,8 @@ previous project of mine which shares the same name.
   browser without JavaScript support or from the command line with utilities
   like cURL or wget.
 
-- Multiple database backends. Transpo supports SQLite, PostgreSQL and MySQL.
+- Multiple database backends. Transpo supports SQLite, PostgreSQL and
+  MySQL/MariaDB.
 
 ## Usage
 Transpo accepts configuration via environment variables and command line
