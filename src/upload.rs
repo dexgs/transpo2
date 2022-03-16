@@ -204,15 +204,12 @@ impl Writer {
     async fn write(&mut self, buf: &[u8]) -> Result<()> {
         match self {
             Writer::Basic(writer) => {
-                writer.flush().await?;
                 writer.write_all(buf).await
             },
             Writer::Encrypted(writer) => {
-                writer.flush().await?;
                 writer.write_all(buf).await
             },
             Writer::EncryptedZip(writer) => {
-                writer.flush().await?;
                 writer.write_all(buf).await
             }
         }
@@ -362,12 +359,12 @@ async fn websocket_read_loop(
                     }
 
                     writer.write_all(&b).await?;
-                    writer.flush().await?;
                 }
             },
             Message::Ping(b) => conn.send(Message::Pong(b)).await
                 .map_err(|_| Error::from(ErrorKind::ConnectionAborted))?,
             Message::Close(_) => {
+                writer.flush().await?;
                 return Ok(());
             },
             _ => {
@@ -685,6 +682,7 @@ where R: AsyncReadExt + Unpin
                                 },
                                 Writer::Encrypted(mut writer) => {
                                     writer.with_mut(|w| w.finish()).await?;
+                                    writer.flush().await?;
                                 },
                                 _ => {}
                             }
