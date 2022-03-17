@@ -3,6 +3,22 @@ body {
     background: var(--page-bg);
 }
 
+h1#title::before {
+    display: block;
+    width: 200px;
+    height: 200px;
+    background-image: url("../res/pigeon.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    position: absolute;
+    opacity: 80%;
+    content: "";
+    z-index: -1;
+    margin-left: -200px;
+    margin-top: 20px;
+}
+
 div#header > a {
     color: var(--header-link-fg);
 }
