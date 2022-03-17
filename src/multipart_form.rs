@@ -185,6 +185,7 @@ fn find_ending_subslice_of(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option
 {
     if s1.len() > 1 && s2.len() > 1 {
         for sub_len in 1..=cmp::min(s2.len(), s1.len()) {
+            // If the first byte of the last `sub_len` bytes of s1 is not in s2
             if !s2_byte_map[s1[s1.len() - sub_len] as usize] {
                 return None;
             } else if s1.ends_with(&s2[..sub_len]) {
@@ -342,7 +343,7 @@ value2\r
         let mut value = 0;
         loop {
             match parse(&FORM_BODY[i..], BOUNDARY, &byte_map) {
-                ParseResult::NewValue(len, cd, ct, val) => {
+                ParseResult::NewValue(len, cd, _ct, val) => {
                     i += len;
 
                     if value == 0 {
