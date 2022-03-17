@@ -69,4 +69,4 @@ async function downloadEventHandler(e) {
 }
 
 
-window.addEventListener("pageshow", async () => { await setup(true) });
+window.addEventListener("pageshow", async () => { await setup(false) });
