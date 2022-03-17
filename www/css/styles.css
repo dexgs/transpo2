@@ -191,6 +191,10 @@ progress::-webkit-progress-value, progress::-moz-progress-bar {
     background-color: var(--progress-bar-fg);
 }
 
+div#about {
+    line-height: 1.5;
+}
+
 .throbber::before {
     background-image: url("../res/throbber.png");
     background-size: contain;
