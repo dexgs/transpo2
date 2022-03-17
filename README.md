@@ -68,6 +68,9 @@ description in a sub-item
 The Transpo executable itself will print this information and exit if it is
 called with the `-h` or `--help` command line arguments.
 
+Transpo will print its current configuration to the standard output on startup
+unless it is started with `-Q`.
+
 ## Compiling
 Transpo can be compiled with the following cargo features: 
 `sqlite`, `mysql`, and `postgres`. Each feature enables support for its
