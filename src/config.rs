@@ -22,6 +22,7 @@ environment variables. The available options are as follows:
  -d / TRANSPO_STORAGE_DIRECTORY            <path> : path to the directory where Transpo will store uploads
  -D / TRANSPO_DATABASE_URL             <path/url> : URL to which database connections will be made
  -n / TRANSPO_APP_NAME                   <string> : name shown in web interface
+ -Q /                                             : quiet: do not print configuration on start
  -h /                                             : print this help message and exit
 ";
 
@@ -39,6 +40,7 @@ pub struct TranspoConfig {
     pub storage_dir: PathBuf,
     pub db_url: String,
     pub app_name: String,
+    pub quiet: bool
 }
 
 impl Default for TranspoConfig {
@@ -66,7 +68,9 @@ impl Default for TranspoConfig {
 
             db_url: "./transpo_storage/db.sqlite".to_string(),
 
-            app_name: "Transpo".to_string()
+            app_name: "Transpo".to_string(),
+
+            quiet: false
         }
     }
 }
@@ -145,7 +149,11 @@ impl TranspoConfig {
                 "-h" | "--help" => {
                     println!("{}", HELP_MSG);
                     std::process::exit(1);
-                }
+                },
+                "-Q" => {
+                    self.quiet = true;
+                    continue;
+                },
                 _ => continue
             };
 

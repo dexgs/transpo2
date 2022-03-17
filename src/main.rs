@@ -56,7 +56,10 @@ fn main() {
     let mut config = TranspoConfig::default();
     config.parse_vars(env::vars());
     config.parse_args(env::args());
-    println!("Running with: {:#?}", &config);
+
+    if !config.quiet {
+        println!("Running with: {:#?}", &config);
+    }
 
     fs::create_dir_all(&config.storage_dir)
         .expect("Creating storage directory");
