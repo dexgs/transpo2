@@ -15,7 +15,7 @@ h1#title::before {
     opacity: 80%;
     content: "";
     z-index: -1;
-    margin-left: -200px;
+    margin-left: -220px;
     margin-top: 20px;
 }
 
