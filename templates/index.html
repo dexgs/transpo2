@@ -14,6 +14,29 @@
 
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <title>{{ app_name }}</title>
+
+<style>
+body {
+    width: min(800px, 100% - 10px);
+}
+
+ul#uploaded-list > li.failed > a::before {
+    content: "Upload failed";
+}
+</style>
+
+<noscript>
+<style>
+body {
+    width: -moz-fit-content;
+    width: fit-content;
+}
+div#file-list-container, div#file-area-footer, div#uploaded-area {
+    display: none;
+}
+</style>
+</noscript>
+
     </head>
     <body>
         <noscript>
@@ -68,11 +91,11 @@
                         <input name="files" id="file-input" type="file" multiple/>
                     </div>
 
-                    <div id="file-list-container" style="display: none;">
+                    <div id="file-list-container">
                         <ul id="file-list"></ul>
                     </div>
 
-                    <div id="file-area-footer" class="flex-row" style="visibility: hidden; display: none;">
+                    <div id="file-area-footer" class="flex-row" style="visibility: hidden;">
                         <span>
                             Upload size:
                             <output id="upload-size-output"></output>
@@ -137,7 +160,7 @@
                 <button id="upload-button">Upload</button>
             </form>
 
-            <div id="uploaded-area" style="display: none">
+            <div id="uploaded-area">
                 <h2>Your Uploads</h2>
                 <div id="uploaded-list-container">
                     <ul id="uploaded-list"></ul>
@@ -146,7 +169,7 @@
         </div>
 
 
-        <template id="file-list-item-template" style="display: none">
+        <template id="file-list-item-template" style="display: none;">
             <li data-index="">
                 <span class="hidden">File name:</span>
                 <span class="file-list-item-name flex-no-expand"></span>
@@ -158,19 +181,13 @@
             </li>
         </template>
 
-        <template id="max-upload-size-warning-template" style="display: none">
+        <template id="max-upload-size-warning-template" style="display: none;">
             <div class="max-upload-size-warning">
                 <b>&#x26A0;&#xFE0E; Warning:</b> the maximum upload size is <output></output> !
             </div>
         </template>
 
-<style>
-ul#uploaded-list > li.failed > a::before {
-    content: "Upload failed";
-}
-</style>
-
-        <template id="uploaded-list-item-template" style="display: none">
+        <template id="uploaded-list-item-template" style="display: none;">
             <li data-id="">
                 <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
                     Copy URL
@@ -196,13 +213,7 @@ ul#uploaded-list > li.failed > a::before {
         <script src="js/upload.js"></script>
 
         <script>
-            window.addEventListener("pageshow", () => {
-                maxUploadSize = {{ max_upload_size }};
-                document.querySelector("BODY").style.width = "min(800px, 100% - 10px)";
-                document.getElementById("file-list-container").style.display = "";
-                document.getElementById("file-area-footer").style.display = "";
-                document.getElementById("uploaded-area").style.display = "";
-            });
+            maxUploadSize = {{ max_upload_size }};
         </script>
     </body>
 </html>
