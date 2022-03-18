@@ -12,14 +12,14 @@ services:
       - TRANSPO_QUOTA_BYTES=5_100_000_000
       - TRANSPO_QUOTA_INTEVAL_MINUTES=60
       - TRANSPO_READ_TIMEOUT_MILLISECONDS=500
-      - TRANSPO_DATABASE_URL=/transpo/transpo_storage/db.sqlite
+      - TRANSPO_DATABASE_URL=/transpo_storage/db.sqlite
       - TRANSPO_APP_NAME=Transpo
     build:
       context: .
       args:
-        - TRANSPO_STORAGE_DIRECTORY=/transpo/transpo_storage
+        - TRANSPO_STORAGE_DIRECTORY=/transpo_storage
         - FEATURES="sqlite,postgres,mysql"
     volumes:
-      - storage:/transpo/transpo_storage
+      - storage:/transpo_storage
 volumes:
   storage:

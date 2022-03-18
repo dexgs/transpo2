@@ -1,20 +1,38 @@
 # syntax=docker/dockerfile:1
-FROM alpine:latest
+FROM alpine:edge AS builder
 
 ARG TRANSPO_STORAGE_DIRECTORY
 ARG FEATURES
 
-ENV TRANSPO_STORAGE_DIRECTORY ${TRANSPO_STORAGE_DIRECTORY:-./transpo_storage}
-
 WORKDIR /transpo
 COPY . .
+
+RUN apk add cargo gcc musl-dev sqlite-dev libpq-dev mariadb-connector-c-dev
+RUN cargo build --release --features ${FEATURES:-sqlite,postgres,mysql}
+RUN strip target/release/transpo2
+
+RUN mkdir -p pkg
+RUN mv target/release/transpo2 pkg
+RUN mv templates pkg
+RUN mv www pkg
+RUN mv migrations pkg
+RUN mv pg_migrations pkg
+
+
+FROM alpine:latest
+
+ARG TRANSPO_STORAGE_DIRECTORY
+ENV TRANSPO_STORAGE_DIRECTORY ${TRANSPO_STORAGE_DIRECTORY:-/transpo_storage}
+
+RUN apk add libgcc sqlite-libs libpq mariadb-connector-c
+
+WORKDIR /transpo
+
+COPY --from=builder /transpo/pkg .
 
 RUN adduser -D transpo
 RUN mkdir -p ${TRANSPO_STORAGE_DIRECTORY}
 RUN chown -R transpo:transpo ${TRANSPO_STORAGE_DIRECTORY}
 
-RUN apk add cargo gcc musl-dev sqlite-dev libpq-dev mariadb-connector-c-dev
-RUN cargo build --release --features ${FEATURES:-"sqlite,postgres,mysql"}
-
 USER transpo
-CMD ./target/release/transpo2
+CMD ["./transpo2", "-Q"]
