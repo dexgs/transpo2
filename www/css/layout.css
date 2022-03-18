@@ -29,7 +29,7 @@ h2 {
 body {
     width: -moz-fit-content;
     width: fit-content;
-    mid-width: -moz-min-content;
+    min-width: -moz-min-content;
     min-width: min-content;
     display: flex;
     flex-direction: column;
