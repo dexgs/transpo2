@@ -49,7 +49,8 @@ impl Write for FileWriter {
             return Err(other_error());
         }
 
-        self.writer.write(bytes)
+        self.writer.write_all(bytes)?;
+        Ok(bytes.len())
     }
 
     fn flush(&mut self) -> Result<()> {
