@@ -283,6 +283,7 @@ pub fn parse_db_backend(db_url: &str) -> Option<DbBackend> {
         return Some(DbBackend::Sqlite);
     }
 
+    #[cfg(not(all(feature = "mysql", feature = "postgres", feature = "sqlite")))]
     None
 }
 
