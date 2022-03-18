@@ -112,34 +112,39 @@ impl EncryptedFileWriter {
     }
 }
 
+pub fn encrypted_write<W>(
+    plaintext: &[u8], buffer: &mut Vec<u8>, cipher: &Aes256Gcm, mut writer: W) -> Result<usize>
+where W: Write
+{
+    if plaintext.is_empty() {
+        return Ok(0);
+    }
+
+    if buffer.capacity() < plaintext.len() * 2 {
+        buffer.reserve(plaintext.len() * 2 - buffer.len());
+    }
+
+    buffer.clear();
+    buffer.extend_from_slice(plaintext);
+
+    match cipher.encrypt_in_place(Nonce::from_slice(&[0; 12]), b"", buffer) {
+        Ok(()) => {
+            if buffer.len() <= MAX_CHUNK_SIZE {
+                let size_prefix = (buffer.len() as u16).to_be_bytes();
+                writer.write_all(&size_prefix)?;
+                writer.write_all(&buffer)?;
+                Ok(plaintext.len())
+            } else {
+                Err(other_error())
+            }
+        },
+        Err(_) => Err(other_error())
+    }
+}
+
 impl Write for EncryptedFileWriter {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-        if bytes.is_empty() {
-            return Ok(0);
-        } else if bytes.len() > MAX_CHUNK_SIZE {
-            return Err(other_error());
-        }
-
-        if self.buffer.capacity() < bytes.len() * 2 {
-            self.buffer.reserve(bytes.len() * 2 - self.buffer.len());
-        }
-
-        self.buffer.clear();
-        self.buffer.extend_from_slice(bytes);
-
-        match self.cipher.encrypt_in_place(Nonce::from_slice(&[0; 12]), b"", &mut self.buffer) {
-            Ok(()) => {
-                if self.buffer.len() <= MAX_CHUNK_SIZE {
-                    let size_prefix = (self.buffer.len() as u16).to_be_bytes();
-                    self.writer.write(&size_prefix)?;
-                    self.writer.write(&self.buffer)?;
-                    Ok(bytes.len())
-                } else {
-                    Err(other_error())
-                }
-            },
-            Err(_) => Err(other_error())
-        }
+    fn write(&mut self, plaintext: &[u8]) -> Result<usize> {
+        encrypted_write(plaintext, &mut self.buffer, &self.cipher, &mut self.writer)
     }
 
     fn flush(&mut self) -> Result<()> {
@@ -282,64 +287,74 @@ impl EncryptedFileReader {
     }
 }
 
+pub fn encrypted_read<R>(
+    plaintext: &mut[u8], buffer: &mut Vec<u8>, read_start: &mut usize,
+    read_end: &mut usize, cipher: &Aes256Gcm, mut reader: R) -> Result<usize>
+where R: Read
+{
+    if plaintext.is_empty() {
+        return Ok(0);
+    }
+
+    if *read_start == *read_end {
+        // if the buffer has no pending decrypted data
+
+        let mut size_buf = 0u16.to_be_bytes();
+
+        if let Err(e) = reader.read_exact(&mut size_buf) {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                // Trillium will continue trying to read from us, even after
+                // we reach the end of the file. However, returning an error
+                // in this case will cause Trillium to improperly close the
+                // connection to the client which can break the download.
+                //
+                // It's a bit of a hack, but just returning Ok(0) will make
+                // sure Trillium properly terminates the chunk-encoded body.
+                return Ok(0);
+            } else {
+                return Err(e);
+            }
+        }
+
+        let chunk_size = u16::from_be_bytes(size_buf) as usize;
+
+        if chunk_size == 0 {
+            return Ok(0); // EOF
+        } else if chunk_size > MAX_CHUNK_SIZE {
+            return Err(other_error());
+        }
+
+        buffer.resize(chunk_size, 0);
+        reader.read_exact(buffer)?;
+
+        match cipher.decrypt_in_place(Nonce::from_slice(&[0; 12]), b"", buffer) {
+            Ok(()) => {
+                let available_plaintext_len = buffer.len();
+                let len = cmp::min(plaintext.len(), available_plaintext_len);
+
+                plaintext[..len].copy_from_slice(&buffer[..len]);
+                *read_start = len;
+                *read_end = available_plaintext_len;
+
+                Ok(len)
+            },
+            Err(_) => Err(other_error())
+        }
+    } else {
+        // If there is remaining decrypted data that has yet to be sent
+        let len = cmp::min(plaintext.len(), *read_end - *read_start);
+        plaintext[..len].copy_from_slice(&buffer[*read_start..][..len]);
+        *read_start += len;
+
+        Ok(len)
+    }
+}
+
 impl Read for EncryptedFileReader {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-
-        if self.read_start == self.read_end {
-            // if the buffer has no pending decrypted data
-
-            let mut size_buf = 0u16.to_be_bytes();
-
-            if let Err(e) = self.reader.read_exact(&mut size_buf) {
-                if e.kind() == ErrorKind::UnexpectedEof {
-                    // Trillium will continue trying to read from us, even after
-                    // we reach the end of the file. However, returning an error
-                    // in this case will cause Trillium to improperly close the
-                    // connection to the client which can break the download.
-                    //
-                    // It's a bit of a hack, but just returning Ok(0) will make
-                    // sure Trillium properly terminates the chunk-encoded body.
-                    return Ok(0);
-                } else {
-                    return Err(e);
-                }
-            }
-
-            let chunk_size = u16::from_be_bytes(size_buf) as usize;
-
-            if chunk_size == 0 {
-                return Ok(0); // EOF
-            } else if chunk_size > MAX_CHUNK_SIZE {
-                return Err(other_error());
-            }
-
-            self.buffer.resize(chunk_size, 0);
-            self.reader.read_exact(&mut self.buffer)?;
-
-            match self.cipher.decrypt_in_place(Nonce::from_slice(&[0; 12]), b"", &mut self.buffer) {
-                Ok(()) => {
-                    let plaintext_len = self.buffer.len();
-                    let len = cmp::min(buf.len(), plaintext_len);
-
-                    buf[..len].copy_from_slice(&self.buffer[..len]);
-                    self.read_start = len;
-                    self.read_end = plaintext_len;
-
-                    Ok(len)
-                },
-                Err(_) => Err(other_error())
-            }
-        } else {
-            // If there is remaining decrypted data that has yet to be sent
-            let len = cmp::min(buf.len(), self.read_end - self.read_start);
-            buf[..len].copy_from_slice(&self.buffer[self.read_start..][..len]);
-            self.read_start += len;
-
-            Ok(len)
-        }
+    fn read(&mut self, plaintext: &mut [u8]) -> Result<usize> {
+        encrypted_read(
+            plaintext, &mut self.buffer, &mut self.read_start,
+            &mut self.read_end, &self.cipher, &mut self.reader)
     }
 }
 
