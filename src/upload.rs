@@ -697,10 +697,11 @@ where R: AsyncReadExt + Unpin
                 },
                 ParseResult::NeedMoreData => {
                     if parse_start == 0 && buf.len() == FORM_READ_BUFFER_SIZE {
-                        // The buffer is not big enough for another read. *very*
-                        // unlikely to happen for a legitimate upload and not
-                        // possible to handle without allocating arbitrary
-                        // amounts of memory.
+                        // The buffer is not big enough for another read without
+                        // discarding any data. This is *very* unlikely to
+                        // happen for a legitimate upload and not possible to
+                        // handle without allocating arbitrary amounts of
+                        // memory.
                         return Err(Error::new(
                                 ErrorKind::Other,
                                 "Form field is too big"));
