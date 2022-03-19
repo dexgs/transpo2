@@ -20,11 +20,13 @@ h1#title::before {
 }
 
 div#header > a {
+    color: #306cd7;
     color: var(--header-link-fg);
 }
 
 a.upload-link {
     font-weight: bold;
+    color: #306cd7;
     color: var(--upload-link-fg);
 }
 
@@ -74,13 +76,17 @@ button#upload-button, button#download-button {
 button#upload-button {
     margin-top: 3px;
 
+    background-color: #2171b6;
     background-color: var(--upload-button-bg);
+    color: white;
     color: var(--upload-button-fg);
     border-color: var(--upload-button-border);
 }
 
 button#download-button {
+    background-color: #2171b6;
     background-color: var(--download-button-bg);
+    color: white;
     color: var(--download-button-fg);
     border-color: var(--download-button-border);
 }
@@ -143,6 +149,7 @@ button.file-list-item-remove, button.uploaded-list-item-remove, button#clear-fil
 }
 
 div#file-area > div.max-upload-size-warning, div.nojs-warning {
+    background-color: #ffd557;
     background-color: var(--warning-bg);
     color: var(--warning-fg);
     border-color: var(--warning-border);

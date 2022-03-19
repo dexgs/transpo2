@@ -11,10 +11,14 @@ h2 {
 }
 
 .hidden {
+    width: 0;
+    height: 0;
     font-size: 0;
     opacity: 0%;
     position: absolute;
     pointer-events: none;
+    color: transparent;
+    left: -100000px;
 }
 
 .flex-no-expand {
@@ -27,6 +31,7 @@ h2 {
 }
 
 body {
+    width: 500px;
     width: -moz-fit-content;
     width: fit-content;
     min-width: -moz-min-content;
@@ -87,20 +92,22 @@ div#file-area {
     padding: 5px;
 }
 
-div#file-area > input#file-input {
+input#file-input {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    flex-grow: 1;
+    width: 300px;
 }
 
-div#file-area > div#file-list-container {
+div#file-list-container {
     flex-grow: 1;
     overflow-y: auto;
     height: 300px;
     direction: rtl;
 }
 
-div#file-list-container > ul#file-list {
+ul#file-list {
     width: 100%;
     padding: 0;
     margin: 0;
@@ -108,20 +115,17 @@ div#file-list-container > ul#file-list {
     direction: ltr;
 }
 
-div#file-area > div#file-list-container > ul#file-list > li {
+ul#file-list > li {
     display: flex;
     flex-direction: row;
     align-items: baseline;
     gap: 5px;
 }
 
-div#file-area > ul#file-list > li > span.file-list-item-name {
+ul#file-list > li > span.file-list-item-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-div#file-area > ul#file-list > li > span.file-list-item-name {
 }
 
 .flex-row {
@@ -156,7 +160,6 @@ fieldset#time-limit-fields > div {
     display: inline-block;
 }
 
-
 hr {
     width: 100%;
     margin: 0;
@@ -168,6 +171,10 @@ fieldset.togglable-input {
 
 fieldset.togglable-field > label {
     user-select: none;
+}
+
+fieldset.togglable-field input[type="checkbox"] {
+    margin-left: 0;
 }
 
 fieldset.togglable-field div {
@@ -182,15 +189,28 @@ fieldset.togglable-field div {
     transition: all 0.1s;
 }
 
-input[type="text"] {
-    flex-grow: 1;
-}
-
 fieldset.togglable-field input:checked ~ div {
     height: 1.5em;
     margin-top: 5px;
     visibility: visible;
     opacity: 100%;
+}
+
+input[type="text"] {
+    flex-grow: 1;
+}
+
+input[type="number"] {
+    width: 50px;
+}
+
+input[type="number"]#days-input {
+    width: 60px;
+}
+
+
+button#upload-button, button#download-button {
+    width: 100%;
 }
 
 
