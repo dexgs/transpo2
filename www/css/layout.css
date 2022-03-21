@@ -143,6 +143,7 @@ div#file-area > div.max-upload-size-warning {
 
 fieldset {
     border: none;
+    padding: 5px 0;
 }
 
 fieldset#time-limit-fields {
@@ -190,7 +191,7 @@ fieldset.togglable-field div {
 }
 
 fieldset.togglable-field input:checked ~ div {
-    height: 1.5em;
+    height: 30px;
     margin-top: 5px;
     visibility: visible;
     opacity: 100%;
