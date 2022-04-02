@@ -7,7 +7,7 @@ use crate::files::*;
 use crate::http_errors::*;
 
 use std::io::{Read, Result};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use blocking::*;
 use trillium::{Conn, Body};
@@ -20,7 +20,7 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 struct Reader<R>
 where R: Read {
     reader: R,
-    accessor: Accessor,
+    accessor_mutex: Arc<Mutex<Accessor>>,
     db_backend: DbBackend,
     config: Arc<TranspoConfig>
 }
@@ -29,27 +29,25 @@ impl<R> Reader<R>
 where R: Read
 {
     fn cleanup(&mut self) {
-        let lock = self.accessor.mtx.clone();
-        let guard = lock.lock().unwrap();
+        let mut accessor = self.accessor_mutex.lock().unwrap();
 
         // If we're the last accessor, then it's our responsibility to
         // clean up the upload if it is now invalid!
-        if self.accessor.is_only_accessor() {
+        if accessor.is_only_accessor() {
             let db_connection = establish_connection(self.db_backend, &self.config.db_url);
 
-            let should_delete = match Upload::select_with_id(self.accessor.id, &db_connection) {
+            let should_delete = match Upload::select_with_id(accessor.id, &db_connection) {
                 Some(upload) => upload.is_expired(),
                 None => true
             };
 
             if should_delete {
-                Upload::delete_with_id(self.accessor.id, &db_connection);
-                delete_upload_dir(&self.config.storage_dir, self.accessor.id);
+                Upload::delete_with_id(accessor.id, &db_connection);
+                delete_upload_dir(&self.config.storage_dir, accessor.id);
             }
         }
 
-        self.accessor.revoke();
-        drop(guard);
+        accessor.revoke();
     }
 }
 
@@ -105,9 +103,9 @@ pub async fn handle(
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
             let upload = {
-                let mut accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
-                let lock = accessor.mtx.clone();
-                let guard = lock.lock().unwrap();
+                let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
+                let mut accessor = accessor_mutex.lock().unwrap();
+
                 let row = Upload::select_with_id(id, &db_connection)?;
 
                 // If the row is expired and we are the only accessor, clean it up!
@@ -122,7 +120,6 @@ pub async fn handle(
                 };
 
                 accessor.revoke();
-                drop(guard);
 
                 upload
             }?;
@@ -139,7 +136,7 @@ pub async fn handle(
             Upload::decrement_remaining_downloads(id, &db_connection)?;
 
 
-            let accessor = accessors.access(id, (db_backend, config.db_url.to_owned()));
+            let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
             let upload_path = config.storage_dir.join(&id_string).join("upload");
             let (body, file_name, mime_type) = match crypto_key {
                 Some(key) => {
@@ -159,12 +156,12 @@ pub async fn handle(
 
                     file_name = encode(&file_name).into_owned();
 
-                    let body = create_body_for(reader, accessor, db_backend, config);
+                    let body = create_body_for(reader, accessor_mutex, db_backend, config);
                     (body, file_name, mime_type)
                 },
                 None => {
                     let reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
-                    let body = create_body_for(reader, accessor, db_backend, config);
+                    let body = create_body_for(reader, accessor_mutex, db_backend, config);
                     (body, upload.file_name, upload.mime_type)
                 }
             };
@@ -188,15 +185,15 @@ pub async fn handle(
 }
 
 fn create_body_for<R>(
-    reader: R, accessor: Accessor,
+    reader: R, accessor_mutex: Arc<Mutex<Accessor>>,
     db_backend: DbBackend, config: Arc<TranspoConfig>) -> Body
 where R: Read + Sync + Send + 'static
 {
     let reader = Reader {
-        reader: reader,
-        accessor: accessor,
-        db_backend: db_backend,
-        config: config
+        reader,
+        accessor_mutex,
+        db_backend,
+        config
     };
 
     Body::new_streaming(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, reader), None)

@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use crate::db::*;
 
 
-// Count the number of concurrent accessors to files so that they are not
-// deleted during downloads, etc.
+// Count the number of concurrent accessors to files to make sure that they
+// aren't deleted while being downloaded over a different connection.
 
 pub struct Accessor {
     parent: Accessors,
     pub id: i64,
-    pub mtx: Arc<Mutex<()>>,
+    rc: usize,
     db_connection_info: DbConnectionInfo
 }
 
@@ -19,10 +19,10 @@ impl Accessor {
         let db_connection = establish_connection_info(&self.db_connection_info);
         Upload::revoke(&db_connection, self.id)
             .expect("Revoking access in DB");
-        let mut map = self.parent.0.lock().unwrap();
-        let (rc, _) = map.get_mut(&self.id).unwrap();
-        *rc -= 1;
-        if *rc == 0 {
+
+        self.rc -= 1;
+        if self.rc == 0 {
+            let mut map = self.parent.0.lock().unwrap();
             map.remove(&self.id);
         }
     }
@@ -31,57 +31,60 @@ impl Accessor {
     // possessed by this instance
     pub fn is_only_accessor(&self) -> bool {
         let db_connection = establish_connection_info(&self.db_connection_info);
-        let map = self.parent.0.lock().unwrap();
-        let (rc, _) = map.get(&self.id).unwrap();
-        *rc == 1 && Upload::num_accessors(&db_connection, self.id) == Some(1)
+        self.rc == 1 && Upload::num_accessors(&db_connection, self.id) == Some(1)
     }
 }
 
 
 #[derive(Clone)]
-pub struct Accessors (Arc<Mutex<HashMap<i64, (usize, Arc<Mutex<()>>)>>>);
+pub struct Accessors (Arc<Mutex<HashMap<i64, Arc<Mutex<Accessor>>>>>);
 
 impl Accessors {
     pub fn new() -> Self {
         Self (Arc::new(Mutex::new(HashMap::new())))
     }
 
-    pub fn access(&self, id: i64, db_connection_info: DbConnectionInfo) -> Accessor {
+    pub fn access(&self, id: i64, db_connection_info: DbConnectionInfo) -> Arc<Mutex<Accessor>> {
         let db_connection = establish_connection_info(&db_connection_info);
         Upload::access(&db_connection, id)
             .expect("Gaining access in DB");
-        let mut map = self.0.lock().unwrap();
-        match map.get_mut(&id) {
-            Some((rc, mtx)) => {
-                // Set a new mutex if the current one is poisoned
-                let mtx = if mtx.lock().is_ok() {
-                    mtx.clone()
-                } else {
-                    Arc::new(Mutex::new(()))
-                };
-                *rc += 1;
-                let accessor = Accessor {
-                    parent: self.clone(),
-                    id,
-                    mtx,
-                    db_connection_info
-                };
 
-                accessor
+        let mut map = self.0.lock().unwrap();
+
+        // Get the existing mutex, or create it if it does not exist (or is poisoned)
+        let accessor_mutex = match map.get(&id) {
+            Some(accessor_mutex) => {
+                match accessor_mutex.lock() {
+                    Ok(mut accessor) => {
+                        accessor.rc += 1;
+                        accessor_mutex.clone()
+                    }
+                    Err(_) => {
+                        // Handle a poisoned lock...
+                        let accessor = Accessor {
+                            parent: self.clone(),
+                            id,
+                            rc: 1,
+                            db_connection_info
+                        };
+                        let accessor_mutex = Arc::new(Mutex::new(accessor));
+                        accessor_mutex
+                    }
+                }
             },
             None => {
-                let mtx = Arc::new(Mutex::new(()));
-                map.insert(id, (1, mtx.clone()));
-
                 let accessor = Accessor {
                     parent: self.clone(),
                     id,
-                    mtx,
+                    rc: 1,
                     db_connection_info
                 };
-
-                accessor
+                let accessor_mutex = Arc::new(Mutex::new(accessor));
+                accessor_mutex
             }
-        }
+        };
+
+        map.insert(id, accessor_mutex.clone());
+        accessor_mutex
     }
 }
