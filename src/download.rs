@@ -82,6 +82,7 @@ pub async fn handle(
     let mut crypto_key: Option<Vec<u8>> = None;
     let mut password: Option<Vec<u8>> = None;
 
+    // Parse the query string
     for field in query.split('&') {
         if let Some((key, value)) = field.split_once('=') {
             match key {
@@ -102,6 +103,7 @@ pub async fn handle(
         let config = config.clone();
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
+
             let upload = {
                 let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
                 let mut accessor = accessor_mutex.lock().unwrap();
@@ -138,7 +140,9 @@ pub async fn handle(
 
             let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
             let upload_path = config.storage_dir.join(&id_string).join("upload");
+
             let (body, file_name, mime_type) = match crypto_key {
+                // server-side decryption
                 Some(key) => {
                     let (reader, mut file_name, mime_type) =
                         EncryptedFileReader::new(
@@ -159,6 +163,7 @@ pub async fn handle(
                     let body = create_body_for(reader, accessor_mutex, db_backend, config);
                     (body, file_name, mime_type)
                 },
+                // no server-side decryption
                 None => {
                     let reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
                     let body = create_body_for(reader, accessor_mutex, db_backend, config);
