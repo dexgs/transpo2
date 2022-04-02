@@ -8,7 +8,7 @@ WORKDIR /transpo
 COPY . .
 
 RUN apk add cargo gcc musl-dev sqlite-dev libpq-dev mariadb-connector-c-dev
-RUN cargo build --release --features ${FEATURES:-sqlite,postgres,mysql}
+RUN cargo build --release --no-default-features --features ${FEATURES:-sqlite,postgres,mysql}
 RUN strip target/release/transpo2
 
 RUN mkdir -p pkg
