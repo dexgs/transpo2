@@ -24,15 +24,13 @@ FROM alpine:latest
 ARG TRANSPO_STORAGE_DIRECTORY
 ENV TRANSPO_STORAGE_DIRECTORY ${TRANSPO_STORAGE_DIRECTORY:-/transpo_storage}
 
-RUN apk add libgcc sqlite-libs libpq mariadb-connector-c
-
 WORKDIR /transpo
 
 COPY --from=builder /transpo/pkg .
 
+RUN apk add libgcc sqlite-libs libpq mariadb-connector-c
 RUN adduser -D transpo
-RUN mkdir -p ${TRANSPO_STORAGE_DIRECTORY}
-RUN chown -R transpo:transpo ${TRANSPO_STORAGE_DIRECTORY}
+RUN mkdir -p ${TRANSPO_STORAGE_DIRECTORY} && chown -R transpo:transpo ${TRANSPO_STORAGE_DIRECTORY}
 
 USER transpo
 CMD ["./transpo2", "-Q"]
