@@ -14,10 +14,13 @@ self.addEventListener("install", e => {
     self.skipWaiting();
 });
 
-self.addEventListener("message", e => {
+self.addEventListener("message", async e => {
     key = e.data.key;
     uploadID = e.data.uploadID;
     appName = e.data.appName;
+
+    const client = e.source;
+    client.postMessage({});
 });
 
 self.addEventListener("fetch", e => {
