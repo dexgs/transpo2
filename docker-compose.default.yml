@@ -16,8 +16,6 @@ services:
       - TRANSPO_APP_NAME=Transpo
     build:
       context: .
-      args:
-        - TRANSPO_STORAGE_DIRECTORY=/transpo_storage
     volumes:
       - storage:/transpo_storage
 volumes:

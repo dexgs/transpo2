@@ -20,16 +20,13 @@ RUN mv pg_migrations pkg
 
 FROM alpine:latest
 
-ARG TRANSPO_STORAGE_DIRECTORY="/transpo_storage"
-ENV TRANSPO_STORAGE_DIRECTORY $TRANSPO_STORAGE_DIRECTORY
-
 WORKDIR /transpo
 
 COPY --from=builder /transpo/pkg .
 
 RUN apk add libgcc sqlite-libs libpq mariadb-connector-c
 RUN adduser -D transpo
-RUN mkdir -p ${TRANSPO_STORAGE_DIRECTORY} && chown -R transpo:transpo ${TRANSPO_STORAGE_DIRECTORY}
+RUN mkdir -p /transpo_storage && chown -R transpo:transpo /transpo_storage
 
 USER transpo
-CMD ["./transpo2", "-Q"]
+CMD ["./transpo2", "-d", "/transpo_storage", "-Q"]
