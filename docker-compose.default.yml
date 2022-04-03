@@ -16,6 +16,8 @@ services:
       - TRANSPO_APP_NAME=Transpo
     build:
       context: .
+      args:
+        - FEATURES=sqlite,postgres,mysql
     volumes:
       - storage:/transpo_storage
 volumes:
