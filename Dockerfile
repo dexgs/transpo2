@@ -30,9 +30,10 @@ RUN apk add --no-cache libgcc `echo $FEATURES \
     | sed 's/,/ /g' \
     | sed 's/sqlite/sqlite-libs/' \
     | sed 's/postgres/libpq/' \
-    | sed 's/mysql/mariadb-connector-c/'`
-RUN adduser -D transpo
-RUN mkdir -p /transpo_storage && chown -R transpo:transpo /transpo_storage
+    | sed 's/mysql/mariadb-connector-c/'` ; \
+    \
+    adduser -D transpo ; \
+    mkdir -p /transpo_storage && chown -R transpo:transpo /transpo_storage
 
 
 FROM base
