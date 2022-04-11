@@ -10,7 +10,6 @@ mod files;
 mod constants;
 mod db;
 mod cleanup;
-// mod rate_limit; not used for now...
 mod quotas;
 mod http_errors;
 
