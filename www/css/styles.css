@@ -177,6 +177,10 @@ ul#uploaded-list > li > a {
     color: var(--upload-url-fg);
 }
 
+ul#uploaded-list > li.failed > a {
+    pointer-events: none;
+}
+
 ul#uploaded-list > li.failed > a::before {
     color: var(--upload-failed-fg);
     background-color: var(--upload-failed-bg);
