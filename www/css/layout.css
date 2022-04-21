@@ -272,7 +272,7 @@ ul#uploaded-list > li.failed > a::before {
 
 ul#uploaded-list > li > progress {
     width: calc(100% - 2px);
-    height: 2px;
+    height: 4px;
     margin-left: -100%;
     position: relative;
     bottom: -15px;

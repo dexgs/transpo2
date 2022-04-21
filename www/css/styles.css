@@ -191,8 +191,8 @@ ul#uploaded-list > li.failed > a::before {
 
 ul#uploaded-list > li > progress {
     -webkit-appearance: none;
-    border-color: var(--progress-bar-border);
-    border-radius: 5px;
+    border: 1px solid var(--progress-bar-border);
+    border-radius: 2px;
 }
 
 progress::-webkit-progress-bar, progress {
