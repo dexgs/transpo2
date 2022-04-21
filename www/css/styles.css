@@ -177,6 +177,11 @@ ul#uploaded-list > li > a {
     color: var(--upload-url-fg);
 }
 
+ul#uploaded-list > li > a::before {
+    padding: 0 2px 0 0;
+    animation: fade-pulse 1s infinite;
+}
+
 ul#uploaded-list > li.failed > a {
     pointer-events: none;
 }
@@ -186,7 +191,7 @@ ul#uploaded-list > li.failed > a::before {
     background-color: var(--upload-failed-bg);
     text-decoration: underline var(--upload-failed-bg); 
     border-radius: 5px;
-    padding: 0 2px;
+    animation: none;
 }
 
 ul#uploaded-list > li > progress {
@@ -245,5 +250,19 @@ div#about {
 
     to {
         transform: translateY(0);
+    }
+}
+
+@keyframes fade-pulse {
+    0% {
+        opacity: 30%;
+    }
+
+    50% {
+        opacity: 100%;
+    }
+
+    100% {
+        opacity: 30%;
     }
 }

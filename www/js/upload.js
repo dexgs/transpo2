@@ -37,7 +37,7 @@ function progressCallback(id, bytes, obj) {
     obj.bytesUploaded += bytes;
 
     if (obj.uploadSize > 0) {
-        obj.progressBar.value = ~~(100 * obj.bytesUploaded / obj.uploadSize);
+        obj.progressBar.value = 100 * obj.bytesUploaded / obj.uploadSize;
     }
 }
 

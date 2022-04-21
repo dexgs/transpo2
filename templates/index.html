@@ -20,6 +20,14 @@ body {
     width: min(800px, 100% - 10px);
 }
 
+ul#uploaded-list > li > a::before {
+    content: "Uploading";
+}
+
+ul#uploaded-list > li.completed > a::before {
+    content: unset;
+}
+
 ul#uploaded-list > li.failed > a::before {
     content: "Upload failed";
 }
