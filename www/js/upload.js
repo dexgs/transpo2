@@ -9,6 +9,8 @@ function cancelUpload(id) {
         socket.send("CANCEL");
         socket.close();
     }
+
+    delete sockets[id];
 }
 
 function closeCallback(id, obj) {
@@ -16,6 +18,8 @@ function closeCallback(id, obj) {
     if (!obj.isCompleted) {
         errorCallback(id, null, obj);
     }
+
+    delete sockets[id];
 }
 
 function errorCallback(id, error, obj) {
