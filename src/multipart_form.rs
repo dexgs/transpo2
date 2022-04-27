@@ -27,10 +27,17 @@ pub enum ParseResult<'a> {
 // form field, the Content-Disposition (and Content-Type if it has one).
 //
 // Subsequent calls to this function MUST guarantee that `buf` begins where
-// parsing last ended, i.e. the elements of buf starting at the index where
-// parsing last ended should be copied to the beginning of buf.
+// parsing last stopped, i.e. the elements of buf starting at the index where
+// parsing last stopped should be copied to the beginning of buf.
 //
-// `boundary` MUST be prefixed with "\r\n--"
+// Parsing is "stopped" when a conclusive result is returned (`NewValue` or
+// `Continue`). If `NeedMoreData` is returned, more data should be read, but
+// this data should be appended to the value passed as `buf` as the previous
+// parse attempt required more data in order to return a conclusive result.
+//
+// Parsing is finished when `Finished` or `Error` is returned.
+//
+// `boundary` MUST begin with "\r\n--"
 pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[bool]) -> ParseResult<'a>
 where B: AsRef<[u8]>
 {
