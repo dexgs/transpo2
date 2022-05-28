@@ -1,7 +1,29 @@
 const downloadForm = document.getElementById("download-form");
 const downloadButton = document.getElementById("download-button");
 
-async function setupWorker(updateWorker) {
+
+async function downloadEventHandlerSW(e) {
+    e.preventDefault();
+    if (!await setupWorkerAndDownload(false)) {
+        await downloadEventHandlerNoSW(e);
+    }
+}
+
+async function downloadEventHandlerNoSW(e) {
+    e.preventDefault();
+
+    downloadButton.disabled = true;
+    downloadButton.classList.add("throbber");
+
+    const pathElements = location.pathname.split("/");
+    await transpoDownload(location.pathname.concat("/dl"));
+
+    downloadButton.classList.remove("throbber");
+    downloadButton.disabled = false;
+}
+
+
+async function setupWorkerAndDownload(updateWorker) {
     downloadButton.disabled = true;
     downloadButton.classList.add("throbber");
 
@@ -31,41 +53,25 @@ async function setupWorker(updateWorker) {
             registration.active.postMessage(msg);
         }
     } catch (error) {
-        // if the serviceWorker feature is available, but installing failed,
-        // try installing again. In the meantime, enable the non-sw download
-        // handler so downloading still works.
-
         console.error(error);
-        downloadForm.addEventListener("submit", downloadEventHandler);
-
-        setTimeout(async () => { await setupWorker(true); }, 1000);
+        return false;
     }
 
     downloadButton.classList.remove("throbber");
     downloadButton.disabled = false;
+
+    return true;
 }
 
 
-if ("serviceWorker" in navigator) {
+const isIOS = /iphone|ipod|ipad/.test(window.navigator.userAgent.toLowerCase());
+
+if ("serviceWorker" in navigator && !isIOS) {
     navigator.serviceWorker.addEventListener("message", () => {
         downloadForm.submit();
     });
 
-    downloadForm.addEventListener("submit", async e => {
-        e.preventDefault();
-        await setupWorker(false);
-    });
+    downloadForm.addEventListener("submit", downloadEventHandlerSW);
 } else {
-    downloadForm.addEventListener("submit", async e => {
-        e.preventDefault();
-
-        downloadButton.disabled = true;
-        downloadButton.classList.add("throbber");
-
-        const pathElements = location.pathname.split("/");
-        await transpoDownload(location.pathname.concat("/dl"));
-
-        downloadButton.classList.remove("throbber");
-        downloadButton.disabled = false;
-    });
+    downloadForm.addEventListener("submit", downloadEventHandlerNoSW);
 }

@@ -23,7 +23,10 @@ function closeCallback(id, obj) {
 }
 
 function errorCallback(id, error, obj) {
-    obj.listItem.classList.add("failed");
+    if (!obj.isCompleted) {
+        obj.listItem.classList.add("failed");
+    }
+
     delete sockets[id];
 }
 
