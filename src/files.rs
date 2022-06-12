@@ -1,5 +1,5 @@
 use std::io::{Result, Error, ErrorKind, BufWriter, Write, Read, BufReader};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::fs::{File, OpenOptions};
 use std::str;
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -372,18 +372,28 @@ pub fn delete_upload_dir(storage_dir: &PathBuf, id: i64) {
     }
 }
 
-pub fn get_storage_size(storage_dir: &PathBuf) -> Result<usize> {
+pub fn get_file_size<P>(file_path: P) -> Result<u64>
+where P: AsRef<Path>
+{
+    let file_path = file_path.as_ref();
+
+    File::open(file_path)
+        .and_then(|f| f.metadata())
+        .map(|m| m.len())
+}
+
+pub fn get_storage_size<P>(storage_dir: P) -> Result<usize>
+where P: AsRef<Path>
+{
+    let storage_dir = storage_dir.as_ref();
+
     let mut storage_size = 0;
 
     for entry in storage_dir.read_dir()? {
         let upload = entry?.path().join("upload");
 
         if upload.exists() && upload.is_file() {
-            let size = File::open(upload)
-                .and_then(|f| f.metadata())
-                .map(|m| m.len());
-
-            if let Ok(size) = size {
+            if let Ok(size) = get_file_size(upload) {
                 storage_size += size as usize;
             }
         }
