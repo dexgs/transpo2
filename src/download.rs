@@ -99,7 +99,7 @@ pub async fn handle(
         }
     }
 
-    let response: Option<(Body, String, String)> = {
+    let response: Option<(Body, String, String, u64)> = {
         let config = config.clone();
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
@@ -141,6 +141,8 @@ pub async fn handle(
             let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
             let upload_path = config.storage_dir.join(&id_string).join("upload");
 
+            let ciphertext_size = get_file_size(&upload_path).ok()?;
+
             let (body, file_name, mime_type) = match crypto_key {
                 // server-side decryption
                 Some(key) => {
@@ -171,14 +173,15 @@ pub async fn handle(
                 }
             };
 
-            Some((body, file_name, mime_type))
+            Some((body, file_name, mime_type, ciphertext_size))
         }).await
     };
 
-    if let Some((body, file_name, mime_type)) = response {
+    if let Some((body, file_name, mime_type, ciphertext_size)) = response {
         conn
             .with_status(200)
             .with_body(body)
+            .with_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size)) // custom header!
             .with_header("Cache-Control", "no-cache")
             .with_header("Content-Type", mime_type)
             .with_header("Content-Disposition",
