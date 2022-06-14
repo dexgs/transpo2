@@ -12,6 +12,10 @@ const NEWLINE: &'static [u8] = b"\r\n";
 const NEWLINE_BYTE_MAP: &'static [bool] = &newline_byte_map();
 
 pub enum ParseResult<'a> {
+    // There is a separate `bytes` field because the number of bytes parsed can
+    // differ from the size of the `value` that gets returned because of the
+    // additional leading data which prefixes the actual value.
+    //
     //       bytes  c-disp   c-type   value
     NewValue(usize, &'a str, &'a str, &'a [u8]),
     //       value
