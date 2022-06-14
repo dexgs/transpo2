@@ -112,6 +112,8 @@ impl EncryptedFileWriter {
     }
 }
 
+// `buffer` is a resizable buffer for intermediate data required by the
+// encryption process.
 pub fn encrypted_write<W>(
     plaintext: &[u8], buffer: &mut Vec<u8>, cipher: &Aes256Gcm, mut writer: W) -> Result<usize>
 where W: Write
@@ -287,6 +289,11 @@ impl EncryptedFileReader {
     }
 }
 
+// `buffer` is a resizable buffer for intermediate data required by the
+// decryption process. It is required here since the size of the plaintext
+// we produce from a single ciphertext segment may exceed the size of the
+// `plaintext` buffer, so it must be stored and returned in a subsequent call
+// to this function.
 pub fn encrypted_read<R>(
     plaintext: &mut[u8], buffer: &mut Vec<u8>, read_start: &mut usize,
     read_end: &mut usize, cipher: &Aes256Gcm, mut reader: R) -> Result<usize>
