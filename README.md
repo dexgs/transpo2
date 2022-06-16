@@ -110,3 +110,10 @@ location /upload {
 ## Docker
 Copy `docker-compose.default.yml` to `docker-compose.yml` to make configuration
 changes that will not be overwritten by an update.
+
+## Dependencies
+The front-end has a single JavaScript dependency:
+[https://github.com/Touffy/client-zip](client-zip). Its source & license are
+located at ``www/js/transpo/client-zip``.
+
+The back-end's dependencies are declared in ``Cargo.toml``
