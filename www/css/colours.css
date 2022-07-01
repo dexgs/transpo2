@@ -65,6 +65,8 @@
         --progress-bar-fg: #98d0ff;
         --progress-bar-border: #98d0ff;
 
+        --header-link-fg: #98d0ff;
+
         --upload-url-fg: #98d0ff;
     }
 }
