@@ -1619,7 +1619,9 @@ checksum = "5d3f6746ae4fb2c851c6ad2fdaa1090f6777315bc7522b2a2bc5897e091eefb2"
 
 [[package]]
 name = "streaming-zip"
-version = "0.3.0"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a40a504090414b4b048c5f02f2fb0fe2b3c862cf446bc1ab84aa239a05700dd8"
 dependencies = [
  "chrono",
  "crc",
