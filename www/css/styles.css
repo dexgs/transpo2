@@ -15,7 +15,7 @@ h1#title::before {
     opacity: 80%;
     content: "";
     z-index: -1;
-    margin-left: -190px;
+    margin-left: -200px;
     margin-top: 20px;
 }
 
@@ -179,10 +179,6 @@ ul#uploaded-list > li > a {
 
 ul#uploaded-list > li > a::before {
     padding: 0 2px 0 0;
-    animation: fade-pulse 1s infinite;
-}
-
-ul#uploaded-list > li.failed > a {
     pointer-events: none;
 }
 
@@ -191,7 +187,6 @@ ul#uploaded-list > li.failed > a::before {
     background-color: var(--upload-failed-bg);
     text-decoration: underline var(--upload-failed-bg); 
     border-radius: 5px;
-    animation: none;
 }
 
 ul#uploaded-list > li > progress {
