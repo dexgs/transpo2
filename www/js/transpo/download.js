@@ -36,53 +36,67 @@ function generateFileName(uploadID, mime) {
     return name;
 }
 
-async function decryptStream(response, key) {
+async function decryptStream(response, key) { 
     const reader = response.body.getReader();
 
-    let fileCiphertext = new Uint8Array();
-    let bytesRead = 0;
+    let cipherTextLength = 0;
+    let totalBytesRead = 0;
+    if (response.headers.has("Transpo-Ciphertext-Length")) {
+        cipherTextLength = parseInt(response.headers.get("Transpo-Ciphertext-Length"));
+    }
 
+    let fileCiphertext = new Uint8Array();
+
+    let segmentBytesRead = 0;
     let segmentBuffer = new Uint8Array(maxCiphertextSegmentSize + 2);
     let segmentWriteStart = 0;
     let segmentSize = 0;
 
     return new ReadableStream({
         async pull(controller) {
-            if (bytesRead >= fileCiphertext.length) {
+            if (segmentBytesRead >= fileCiphertext.length) {
                 const { value, done } = await reader.read();
                 if (done) {
-                    controller.close();
+                    controller.error(new Error("Download closed prematurely"));
                     return;
                 } else {
                     fileCiphertext = value;
-                    bytesRead = 0;
+                    segmentBytesRead = 0;
+
+                    totalBytesRead += value.length;
+                    if (cipherTextLength != 0) {
+                        console.debug(totalBytesRead / cipherTextLength);
+                    }
                 }
             }
 
             // If size prefix is not in `segmentBuffer`, copy it in.
             if (segmentWriteStart < 2) {
-                let iterLen = Math.min(2 - segmentWriteStart, fileCiphertext.length - bytesRead);
+                let iterLen = Math.min(2 - segmentWriteStart, fileCiphertext.length - segmentBytesRead);
                 for (let i = 0; i < iterLen; i++) {
-                    segmentBuffer[segmentWriteStart + i] = fileCiphertext[bytesRead + i];
+                    segmentBuffer[segmentWriteStart + i] = fileCiphertext[segmentBytesRead + i];
                 }
-                bytesRead += iterLen;
+                segmentBytesRead += iterLen;
                 segmentWriteStart += iterLen;
             }
 
             if (segmentWriteStart >= 2) {
                 segmentSize = segmentBuffer[0] * 256 + segmentBuffer[1];
 
-                if (segmentSize > maxCiphertextSegmentSize || segmentSize == 0) {
+                if (segmentSize == 0) {
                     controller.close();
+                    return;
+                } else if (segmentSize > maxCiphertextSegmentSize) {
+                    controller.error(new Error("Invalid segment size"));
                     return;
                 }
             }
 
-            let iterLen = Math.min(segmentSize + 2 - segmentWriteStart, fileCiphertext.length - bytesRead);
+            let iterLen = Math.min(segmentSize + 2 - segmentWriteStart, fileCiphertext.length - segmentBytesRead);
             for (let i = 0; i < iterLen; i++) {
-                segmentBuffer[segmentWriteStart + i] = fileCiphertext[bytesRead + i];
+                segmentBuffer[segmentWriteStart + i] = fileCiphertext[segmentBytesRead + i];
             }
-            bytesRead += iterLen;
+            segmentBytesRead += iterLen;
             segmentWriteStart += iterLen;
 
             // If the whole segment is contained in `segmentBuffer`
@@ -132,6 +146,12 @@ async function decryptResponse(response, key, uploadID) {
     const headers = new Headers();
     headers.append("Content-Type", mime);
     headers.append("Content-Disposition", "attachment; filename=\"" + name + "\"");
+
+    if (response.headers.has("Transpo-Ciphertext-Length")) {
+        // A hack, but most browsers make use of Content-Length, even for
+        // chunked responses.
+        headers.append("Content-Length", response.headers.get("Transpo-Ciphertext-Length"));
+    }
 
     const init = {
         "status": 200,
