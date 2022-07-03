@@ -119,6 +119,10 @@ input#file-input::file-selector-button {
     border-radius: 5px;
 }
 
+ul#file-list > li.new {
+    animation: fade-in 0.2s linear 1, slide-up 0.2s ease-out 1;
+}
+
 input::file-selector-button, button.uploaded-list-item-copy-url,
 button.file-list-item-remove, button.uploaded-list-item-remove,
 button#clear-files-button {
@@ -240,24 +244,10 @@ div#about {
 
 @keyframes slide-up {
     from {
-        transform: translateY(20px);
+        transform: translateY(100%);
     }
 
     to {
         transform: translateY(0);
-    }
-}
-
-@keyframes fade-pulse {
-    0% {
-        opacity: 30%;
-    }
-
-    50% {
-        opacity: 100%;
-    }
-
-    100% {
-        opacity: 30%;
     }
 }

@@ -57,14 +57,14 @@ function addFilesToUpload(files) {
 // When the value of the file list is changed, instead of replacing previously
 // selected files, append to the end of the file list.
 function fileInputEvent(e) {
+    const prevNumFiles = filesToUpload.length;
     addFilesToUpload(e.target.files);
-
-    updateFileList();
+    updateFileList(prevNumFiles);
 }
 
 // Re-create the contents of the file list to reflect the currently selected
 // files to upload.
-function updateFileList() {
+function updateFileList(prevNumFiles) {
     fileList.innerHTML = "";
 
     let files = Array.from(filesToUpload);
@@ -78,6 +78,10 @@ function updateFileList() {
         listItem.querySelector("span.file-list-item-size").innerHTML = sizeString(file.size);
         listItem.querySelector("button.file-list-item-remove")
             .addEventListener("click", () => {fileRemoveEvent(index)});
+
+        if (index >= prevNumFiles) {
+            listItem.classList.add("new");
+        }
 
         fileList.appendChild(listItem);
     });
@@ -118,7 +122,7 @@ function fileRemoveEvent(index) {
     filesToUpload = newList.files;
     fileInput.files = copyFileList(newList.files);
 
-    updateFileList();
+    updateFileList(oldFiles.length);
 }
 
 function clearAllFiles() {
@@ -128,14 +132,15 @@ function clearAllFiles() {
     filesToUpload = newList.files;
     fileInput.files = copyFileList(newList.files);
 
-    updateFileList();
+    updateFileList(0);
 }
 
 function fileDropEvent(e) {
     e.preventDefault();
     if (fileArea.contains(e.target)) {
+        const prevNumFiles = filesToUpload.length;
         addFilesToUpload(e.dataTransfer.files);
-        updateFileList();
+        updateFileList(prevNumFiles);
     }
 }
 
