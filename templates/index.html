@@ -51,6 +51,17 @@ fieldset.togglable-field div {
             <h1 id="title">{{ app_name }}</h1>
             <a href="about">About<span class="hidden"> {{ app_name }}</span></a>
             <a href="https://github.com/dexgs/transpo2">Source</a>
+            <span class="flex-spacer"></span>
+            <form id="language-form" autocomplete="on">
+                <label for="language-select">&#127760;&#xFE0E; Language:</label>
+                <select name="language" id="language-select">
+                    <option value="en" selected>English</option>
+                    <option value="fr">Francais</option>
+                </select>
+                <noscript>
+                    <input type="submit" value="Select"/>
+                </noscript>
+            </form>
         </div>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">

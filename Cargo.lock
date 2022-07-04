@@ -1814,6 +1814,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "streaming-zip",
+ "toml",
  "trillium",
  "trillium-askama",
  "trillium-http",

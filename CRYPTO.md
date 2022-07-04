@@ -5,7 +5,7 @@ A client-side encrypted upload should be structured as follows:
 Transpo uses 256-bit AES-GCM for encryption. The nonce/iv used during
 encryption is the 96-bit little-endian representation of a counter which is
 incremented after every encryption/decryption operation (0 for the file name, 1
-for the mime type, then 2... for each segment of the file contents).
+for the mime type, then 2, 3, 4... for each segment of the file contents).
 
 The file name should be encrypted first, then the mime type should be encrypted.
 Both the encrypted file name and encrypted mime type should then be base-64
