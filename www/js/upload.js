@@ -53,6 +53,10 @@ function idCallback(id, key, maxDownloads, password, obj) {
 async function upload(e) {
     e.preventDefault();
 
+    if (uploadSize > maxUploadSize) {
+        return false;
+    }
+
     const files = filesToUpload;
     const formData = new FormData(uploadForm);
 

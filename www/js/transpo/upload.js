@@ -17,6 +17,8 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
     let filePlaintext = new Uint8Array();
     let segmentStart = 0;
     let segmentEnd = 0;
+    // Start at 2 since we first encrypt the file name and mime type
+    let count = 2;
 
     return new ReadableStream({
         async pull(controller) {
@@ -42,7 +44,8 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
             segmentEnd = Math.min(segmentStart + maxPlaintextSegmentSize, filePlaintext.length);
 
             const segmentPlaintext = filePlaintext.subarray(segmentStart, segmentEnd);
-            const segmentCiphertext = await encrypt(key, segmentPlaintext);
+            const segmentCiphertext = await encrypt(key, count, segmentPlaintext);
+            count++;
             const segmentPrefix = new Uint8Array(2);
             segmentPrefix[0] = segmentCiphertext.byteLength / 256;
             segmentPrefix[1] = segmentCiphertext.byteLength % 256;
@@ -146,8 +149,8 @@ async function upload(
         mimeBytes = textEncoder.encode("application/zip");
     }
 
-    let nameCipher = await encrypt(key, nameBytes);
-    let mimeCipher = await encrypt(key, mimeBytes);
+    let nameCipher = await encrypt(key, 0, nameBytes);
+    let mimeCipher = await encrypt(key, 1, mimeBytes);
 
     const name = b64Encode(String.fromCharCode(...nameCipher));
     const mime = b64Encode(String.fromCharCode(...mimeCipher));

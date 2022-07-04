@@ -14,6 +14,12 @@ use streaming_zip::*;
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 
 
+fn nonce_bytes_from_count(count: &u64) -> [u8; 12] {
+    let mut nonce_bytes = [0; 12];
+    nonce_bytes[..8].copy_from_slice(&u64::to_le_bytes(*count));
+    nonce_bytes
+}
+
 // Writers
 
 // Write to a single file. `start_new_file` can only be called once, calling it
@@ -72,11 +78,15 @@ impl Write for FileWriter {
 pub struct EncryptedFileWriter {
     writer: FileWriter,
     cipher: Aes256Gcm,
-    buffer: Vec<u8>
+    buffer: Vec<u8>,
+    count: u64
 }
 
-fn encrypt_string(cipher: &Aes256Gcm, string: &str) -> Result<Vec<u8>> {
-    match cipher.encrypt(Nonce::from_slice(&[0; 12]), string.as_bytes()) {
+fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> Result<Vec<u8>> {
+    let nonce_bytes = nonce_bytes_from_count(count);
+    *count += 1;
+
+    match cipher.encrypt(Nonce::from_slice(&nonce_bytes), string.as_bytes()) {
         Ok(ciphertext) => Ok(ciphertext),
         Err(_) => Err(other_error())
     }
@@ -92,14 +102,16 @@ impl EncryptedFileWriter {
         let key = Key::from_slice(&key_slice);
         let cipher = Aes256Gcm::new(key);
         let writer = FileWriter::new(path, max_upload_size)?;
+        let mut count = 0;
 
-        let name_cipher = b64::base64_encode(&encrypt_string(&cipher, name)?);
-        let mime_cipher = b64::base64_encode(&encrypt_string(&cipher, mime)?);
+        let name_cipher = b64::base64_encode(&encrypt_string(&cipher, name, &mut count)?);
+        let mime_cipher = b64::base64_encode(&encrypt_string(&cipher, mime, &mut count)?);
 
         let new = Self {
             writer: writer,
             cipher: cipher,
-            buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2)
+            buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
+            count: count
         };
 
         Ok((new, encoded_key, name_cipher, mime_cipher))
@@ -115,7 +127,7 @@ impl EncryptedFileWriter {
 // `buffer` is a resizable buffer for intermediate data required by the
 // encryption process.
 pub fn encrypted_write<W>(
-    plaintext: &[u8], buffer: &mut Vec<u8>, cipher: &Aes256Gcm, mut writer: W) -> Result<usize>
+    plaintext: &[u8], buffer: &mut Vec<u8>, count: &mut u64, cipher: &Aes256Gcm, mut writer: W) -> Result<usize>
 where W: Write
 {
     if plaintext.is_empty() {
@@ -129,7 +141,10 @@ where W: Write
     buffer.clear();
     buffer.extend_from_slice(plaintext);
 
-    match cipher.encrypt_in_place(Nonce::from_slice(&[0; 12]), b"", buffer) {
+    let nonce_bytes = nonce_bytes_from_count(count);
+    *count += 1;
+
+    match cipher.encrypt_in_place(Nonce::from_slice(&nonce_bytes), b"", buffer) {
         Ok(()) => {
             if buffer.len() <= MAX_CHUNK_SIZE {
                 let size_prefix = (buffer.len() as u16).to_be_bytes();
@@ -146,7 +161,7 @@ where W: Write
 
 impl Write for EncryptedFileWriter {
     fn write(&mut self, plaintext: &[u8]) -> Result<usize> {
-        encrypted_write(plaintext, &mut self.buffer, &self.cipher, &mut self.writer)
+        encrypted_write(plaintext, &mut self.buffer, &mut self.count, &self.cipher, &mut self.writer)
     }
 
     fn flush(&mut self) -> Result<()> {
@@ -254,11 +269,15 @@ pub struct EncryptedFileReader {
     cipher: Aes256Gcm,
     buffer: Vec<u8>,
     read_start: usize,
-    read_end: usize
+    read_end: usize,
+    count: u64,
 }
 
-fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8]) -> Result<String> {
-    match cipher.decrypt(Nonce::from_slice(&[0; 12]), bytes) {
+fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<String> {
+    let nonce_bytes = nonce_bytes_from_count(count);
+    *count += 1;
+
+    match cipher.decrypt(Nonce::from_slice(&nonce_bytes), bytes) {
         Ok(plaintext) => String::from_utf8(plaintext).or(Err(other_error())),
         Err(_) => Err(other_error())
     }
@@ -273,16 +292,18 @@ impl EncryptedFileReader {
         let key_slice = b64::base64_decode(key).ok_or(other_error())?;
         let key = Key::from_slice(&key_slice);
         let cipher = Aes256Gcm::new(key);
+        let mut count = 0;
 
-        let name = decrypt_string(&cipher, &b64::base64_decode(name_cipher).ok_or(other_error())?)?;
-        let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error())?)?;
+        let name = decrypt_string(&cipher, &b64::base64_decode(name_cipher).ok_or(other_error())?, &mut count)?;
+        let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error())?, &mut count)?;
 
         let new = Self {
             reader: FileReader::new(path, expire_after)?,
             cipher: cipher,
             buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
             read_start: 0,
-            read_end: 0
+            read_end: 0,
+            count: count
         };
 
         Ok((new, name, mime))
@@ -296,7 +317,7 @@ impl EncryptedFileReader {
 // to this function.
 pub fn encrypted_read<R>(
     plaintext: &mut[u8], buffer: &mut Vec<u8>, read_start: &mut usize,
-    read_end: &mut usize, cipher: &Aes256Gcm, mut reader: R) -> Result<usize>
+    read_end: &mut usize, count: &mut u64, cipher: &Aes256Gcm, mut reader: R) -> Result<usize>
 where R: Read
 {
     if plaintext.is_empty() {
@@ -334,7 +355,10 @@ where R: Read
         buffer.resize(chunk_size, 0);
         reader.read_exact(buffer)?;
 
-        match cipher.decrypt_in_place(Nonce::from_slice(&[0; 12]), b"", buffer) {
+        let nonce_bytes = nonce_bytes_from_count(count);
+        *count += 1;
+
+        match cipher.decrypt_in_place(Nonce::from_slice(&nonce_bytes), b"", buffer) {
             Ok(()) => {
                 let available_plaintext_len = buffer.len();
                 let len = cmp::min(plaintext.len(), available_plaintext_len);
@@ -361,7 +385,7 @@ impl Read for EncryptedFileReader {
     fn read(&mut self, plaintext: &mut [u8]) -> Result<usize> {
         encrypted_read(
             plaintext, &mut self.buffer, &mut self.read_start,
-            &mut self.read_end, &self.cipher, &mut self.reader)
+            &mut self.read_end, &mut self.count, &self.cipher, &mut self.reader)
     }
 }
 

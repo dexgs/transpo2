@@ -10,6 +10,13 @@ const maxPlaintextSegmentSize = 10240;
 const maxCiphertextSegmentSize = maxPlaintextSegmentSize + 16;
 
 
+function nonceFromCount(count, nonce) {
+    for (let i = 0; i < nonce.length; i++) {
+        nonce[i] = count % 256;
+        count /= 256;
+    }
+}
+
 function stringToBytes(string) {
     const bytes = new Uint8Array(string.length);
     for (let i = 0; i < bytes.length; i++) {
@@ -82,12 +89,14 @@ async function decodeKey(b64) {
 }
 
 // Encrypt plaintext with the given key
-async function encrypt(key, plaintext) {
+async function encrypt(key, count, plaintext) {
+    nonceFromCount(count, PARAMS.iv);
     return new Uint8Array(await crypto.subtle.encrypt(PARAMS, key, plaintext));
 }
 
 // Decrypt ciphertext using the given key
-async function decrypt(key, ciphertext) {
+async function decrypt(key, count, ciphertext) {
+    nonceFromCount(count, PARAMS.iv);
     return new Uint8Array(await crypto.subtle.decrypt(PARAMS, key, ciphertext));
 }
 

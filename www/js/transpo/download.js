@@ -51,6 +51,8 @@ async function decryptStream(response, key) {
     let segmentBuffer = new Uint8Array(maxCiphertextSegmentSize + 2);
     let segmentWriteStart = 0;
     let segmentSize = 0;
+    // since we first decrypt file name and mime type
+    let count = 2;
 
     return new ReadableStream({
         async pull(controller) {
@@ -102,7 +104,8 @@ async function decryptStream(response, key) {
             // If the whole segment is contained in `segmentBuffer`
             if (segmentWriteStart - 2 == segmentSize) {
                 const segmentCiphertext = segmentBuffer.subarray(2, segmentSize + 2);
-                const segmentPlaintext = await decrypt(key, segmentCiphertext);
+                const segmentPlaintext = await decrypt(key, count, segmentCiphertext);
+                count++;
 
                 controller.enqueue(segmentPlaintext);
 
@@ -126,8 +129,8 @@ async function decryptResponse(response, key, uploadID) {
     const nameCipherBytes = stringToBytes(b64Decode(nameCipher));
     const mimeCipherBytes = stringToBytes(b64Decode(mimeCipher));
 
-    const nameBytes = await decrypt(key, nameCipherBytes);
-    const mimeBytes = await decrypt(key, mimeCipherBytes);
+    const nameBytes = await decrypt(key, 0, nameCipherBytes);
+    const mimeBytes = await decrypt(key, 1, mimeCipherBytes);
 
     const mime = textDecoder.decode(mimeBytes);
 
