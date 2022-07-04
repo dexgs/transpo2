@@ -66,7 +66,7 @@ wrapped in some archive format such as ZIP, then encrypted and sent to the
 server as a single file.
 
 See also:
- * [multipart POST](https://wdeveloper.mozilla.org/en-US/docs/Web/HTTP/Methods/POST#example)
+ * [multipart POST](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/POST#example)
 
 # WebSocket upload
 
