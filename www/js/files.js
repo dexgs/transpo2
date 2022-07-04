@@ -14,6 +14,8 @@ const maxUploadSizeWarningTemplate = document.getElementById("max-upload-size-wa
 const uploadedList = document.getElementById("uploaded-list");
 const uploadedListItemTemplate = document.getElementById("uploaded-list-item-template");
 
+const uploadButton = document.getElementById("upload-button");
+
 
 fileInput.addEventListener("input", fileInputEvent);
 clearFilesButton.addEventListener("click", clearAllFiles);
@@ -101,11 +103,13 @@ function updateFileList(prevNumFiles) {
             maxUploadSizeText.innerHTML = sizeString(maxUploadSize);
             fileArea.appendChild(maxUploadSizeWarning);
         }
+        uploadButton.disabled = true;
     } else {
         let maxUploadSizeWarning = fileArea.querySelector("div.max-upload-size-warning");
         if (maxUploadSizeWarning) {
             maxUploadSizeWarning.remove();
         }
+        uploadButton.disabled = false;
     }
 }
 
