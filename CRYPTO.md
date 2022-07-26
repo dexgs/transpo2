@@ -1,20 +1,23 @@
 # POST upload
 
-A client-side encrypted upload should be structured as follows:
+An upload via HTTP POST request with multipart form encoded body is as follows:
 
 Transpo uses 256-bit AES-GCM for encryption. The nonce/iv used during
 encryption is the 96-bit little-endian representation of a counter which is
 incremented after every encryption/decryption operation (0 for the file name, 1
 for the mime type, then 2, 3, 4... for each segment of the file contents).
 
-The file name should be encrypted first, then the mime type should be encrypted.
-Both the encrypted file name and encrypted mime type should then be base-64
-encoded. To make the base64-encoded ciphertexts URL-safe, `+` is replaced with
-`-` and `/` is replaced with `_`. The file name and mime type are to be
-encrypted in this order BEFORE any file contents are encrypted.
+For an encrypted upload, the file name should be encrypted first, then the mime
+type should be encrypted. Both the encrypted file name and encrypted mime type
+should then be base-64 encoded. To make the base64-encoded ciphertexts
+URL-safe, `+` is replaced with `-` and `/` is replaced with `_`. The file name
+and mime type are to be encrypted in this order BEFORE any file contents are
+encrypted.
 
 The upload should be a POST request with multipart encoding and a form boundary
-no longer than 70 bytes. The fields of the form are as follows:
+no longer than 70 bytes beginning with "-----------------------"
+
+The fields of the form are as follows:
 
 * `server-side-processing` (`on` or `off`) (optional)
 * `enable-multiple-files` (`on` or `off`) (optional)
