@@ -664,6 +664,8 @@ where R: AsyncReadExt + Unpin
                         // the contents of the upload
                         if field_type != FormField::Files {
                             upload_success = form.parse_field(&field_type, &field_buf[..field_write_start]);
+                        } else {
+                            upload_success = true;
                         }
 
                         if let Some(mut writer) = file_writer.take() {
