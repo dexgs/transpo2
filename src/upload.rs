@@ -278,17 +278,12 @@ pub async fn handle_websocket(
 
         let upload_path = upload_dir.join("upload");
 
-        conn.send_string(upload_id_string.clone()).await;
+        let form = {
+            let mut form = UploadForm::new();
 
-        let upload_result = websocket_read_loop(
-            conn, &upload_path, config.clone(), quotas_data).await;
-
-        if upload_result.is_ok() {
             let days = minutes / (60 * 24);
             let hours = (minutes % (60 * 24)) / 60;
             let minutes = minutes % 60;
-
-            let mut form = UploadForm::new();
 
             form.days = Some(days as u16);
             form.hours = Some(hours as u8);
@@ -304,16 +299,31 @@ pub async fn handle_websocket(
                 form.password = Some(password);
             }
 
-            if write_to_db(
-                form, upload_id, Some(file_name), Some(mime_type),
-                db_backend, config).await.is_some()
+            form
+        };
+
+        let db_write_succeeded = write_to_db(
+            form, upload_id, Some(file_name), Some(mime_type),
+            db_backend, config.clone()).await.is_some();
+
+        if db_write_succeeded {
+            conn.send_string(upload_id_string.clone()).await;
+
+            let upload_result = websocket_read_loop(
+                &mut conn, &upload_path, config.clone(), quotas_data).await;
+
+            if upload_result.is_ok()
+                && conn.send(Message::Close(None)).await.is_ok()
             {
                 return Ok(());
             }
         }
 
+
         unblock(move || {
             if upload_dir.exists() {
+                let db_connection = establish_connection(db_backend, &config.db_url);
+                Upload::delete_with_id(upload_id, &db_connection);
                 std::fs::remove_dir_all(upload_dir)
                     .expect("Deleting failed upload");
             }
@@ -324,7 +334,7 @@ pub async fn handle_websocket(
 }
 
 async fn websocket_read_loop(
-    mut conn: WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
+    conn: &mut WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
     quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
 {
     if is_storage_full(config.clone()).await? {
@@ -355,6 +365,10 @@ async fn websocket_read_loop(
                         bytes_read_interval = 0;
                         if is_storage_full(config.clone()).await? {
                             return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+                        }
+
+                        if !upload_path.exists() {
+                            return Err(Error::new(ErrorKind::Other, "Upload file removed"));
                         }
                     }
 
@@ -418,17 +432,19 @@ pub async fn handle_post(
         req_body, boundary, &upload_path, &mut form, &mut file_writer, &mut key,
         &mut file_name, &mut mime_type, config.clone(), quotas_data).await;
 
-    let upload_success = match parse_result {
+    let parse_success = match parse_result {
         Ok(result) => result,
         Err(_) => false
     };
 
     let is_password_protected = form.is_password_protected();
+
+    let upload_success = parse_success && write_to_db(
+        form, upload_id.clone(), file_name, mime_type,
+        db_backend, config.clone()).await.is_some();
+
     // Respond to the client
-    if upload_success
-    && write_to_db(form, upload_id.clone(), file_name, mime_type, db_backend,
-                   config.clone()).await.is_some()
-    {
+    if upload_success {
         if let Some(key) = key {
             // If the server handled encryption + archiving
             let key_string = String::from_utf8(key).unwrap();
@@ -466,7 +482,7 @@ pub async fn handle_post(
         unblock(move || {
             if upload_dir.exists() {
                 std::fs::remove_dir_all(upload_dir)
-                .expect("Deleting failed upload");
+                    .expect("Deleting failed upload");
             }
         }).await;
 

@@ -42,6 +42,8 @@ where R: Read
             };
 
             if should_delete {
+                // Note: ID generation avoids collisions by checking the
+                // filesystem, so we remove the upload directory last.
                 Upload::delete_with_id(accessor.id, &db_connection);
                 delete_upload_dir(&self.config.storage_dir, accessor.id);
             }

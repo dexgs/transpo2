@@ -8,6 +8,7 @@ use crate::b64;
 use crate::random_bytes::*;
 use crate::constants::*;
 use chrono::*;
+use std::time::Duration;
 use std::cmp;
 use streaming_zip::*;
 
@@ -234,6 +235,7 @@ impl Write for EncryptedZipWriter {
 pub struct FileReader {
     reader: BufReader<File>,
     expire_after: NaiveDateTime,
+    consecutive_zeroes: usize
 }
 
 impl FileReader {
@@ -243,7 +245,8 @@ impl FileReader {
 
         let new = Self {
             reader,
-            expire_after
+            expire_after,
+            consecutive_zeroes: 0
         };
 
         Ok(new)
@@ -252,11 +255,29 @@ impl FileReader {
 
 impl Read for FileReader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        const ONE_SECOND: Duration = Duration::from_secs(1);
+
         let now = Local::now().naive_local();
         if now > self.expire_after {
             Err(Error::new(ErrorKind::Other, "Upload expired during download"))
         } else {
-            self.reader.read(buf)
+            let bytes_read = self.reader.read(buf)?;
+
+            if bytes_read == 0 {
+                self.consecutive_zeroes += 1;
+            } else {
+                self.consecutive_zeroes = 0;
+            }
+
+            // The upload might still be in progress while we're downloading
+            // it. If we did at least 2 consecutive zero reads, pause and do
+            // another read.
+            if self.consecutive_zeroes >= 2 {
+                std::thread::sleep(ONE_SECOND);
+                self.reader.read(buf)
+            } else {
+                Ok(bytes_read)
+            }
         }
     }
 }
