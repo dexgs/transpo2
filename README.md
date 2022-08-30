@@ -16,7 +16,7 @@ previous project of mine which shares the same name.
   Transpo can also perform encryption and decryption on the server. This is
   obviously less secure, but enables you to upload/download files from a
   browser without JavaScript support or from the command line with utilities
-  like cURL or wget.
+  like cURL or wget (see [transpo.sh](transpo.sh) for a helper script).
 
 - Multiple database backends. Transpo supports SQLite, PostgreSQL and
   MySQL/MariaDB.
