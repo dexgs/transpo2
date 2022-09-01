@@ -57,6 +57,10 @@ hr {
     border-bottom: 1px dashed;
 }
 
+fieldset input[type="checkbox"] {
+    accent-color: var(--checkbox-color);
+}
+
 button:hover, input::file-selector-button:hover {
     filter: brightness(1.15);
 }
