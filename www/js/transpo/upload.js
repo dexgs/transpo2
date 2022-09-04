@@ -14,6 +14,7 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
 
     const reader = fileStream.getReader();
 
+    const segmentPrefix = new Uint8Array(2);
     let filePlaintext = new Uint8Array();
     let segmentStart = 0;
     let segmentEnd = 0;
@@ -46,7 +47,7 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
             const segmentPlaintext = filePlaintext.subarray(segmentStart, segmentEnd);
             const segmentCiphertext = await encrypt(key, count, segmentPlaintext);
             count++;
-            const segmentPrefix = new Uint8Array(2);
+
             segmentPrefix[0] = segmentCiphertext.byteLength / 256;
             segmentPrefix[1] = segmentCiphertext.byteLength % 256;
 
@@ -63,17 +64,14 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
 }
 
 async function readToSocket(socket, reader) {
-    for (let i = 0; i < 100; i++) {
+    while (socket.readyState == WebSocket.OPEN) {
         const { done, value } = await reader.read();
         if (done) {
             socket.close();
-            return;
-        } else if (socket.readyState == 1) {
-            socket.send(value.buffer);
+        } else {
+            socket.send(value);
         }
     }
-
-    setTimeout(async () => { await readToSocket(socket, reader) }, 0);
 }
 
 // Open a websocket connection over which a file will be uploaded. This function
