@@ -22,7 +22,11 @@ async function downloadEventHandlerSW(e) {
 async function downloadEventHandlerNoSW(e) {
     e.preventDefault();
 
-    await transpoDownload(location.pathname.concat("/dl"));
+    const dlPath = location.pathname.concat("/dl");
+
+    if (!await transpoDownload(dlPath)) {
+        window.location = dlPath;
+    }
 }
 
 
