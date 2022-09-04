@@ -312,9 +312,11 @@ pub async fn handle_websocket(
             let upload_result = websocket_read_loop(
                 &mut conn, &upload_path, config.clone(), quotas_data).await;
 
-            if upload_result.is_ok()
-                && conn.send(Message::Close(None)).await.is_ok()
-            {
+            if upload_result.is_ok() {
+                // Don't handle error, since client may have already closed its
+                // end in which case closing here will return an error, but
+                // this error should *not* cause the upload to fail.
+                drop(conn.send(Message::Close(None)).await);
                 return Ok(());
             }
         }
