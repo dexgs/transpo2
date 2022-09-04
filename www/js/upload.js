@@ -38,9 +38,10 @@ function completionCallback(id, obj) {
 
 function progressCallback(id, bytes, obj) {
     obj.bytesUploaded += bytes;
+    const progress = ~~(1000 * obj.bytesUploaded / obj.uploadSize) / 10;
 
-    if (obj.uploadSize > 0) {
-        obj.progressBar.value = 100 * obj.bytesUploaded / obj.uploadSize;
+    if (obj.uploadSize > 0 && obj.progressBar.value != progress) {
+        obj.progressBar.value = progress;
     }
 }
 
