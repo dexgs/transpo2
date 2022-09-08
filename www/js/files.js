@@ -150,15 +150,14 @@ function fileDropEvent(e) {
 
 
 // Add an entry to the "uploaded" list
-function addUploadedListItem(files, id, key, hasPassword) {
+function addUploadedListItem(files, uploadNum) {
     const listItem = uploadedListItemTemplate.content.cloneNode(true).firstElementChild;
     const link = listItem.querySelector("A");
     const fileName = link.querySelector(".uploaded-list-item-file-name");
     const otherFiles = link.querySelector(".uploaded-list-item-other-files");
-    const copyButton = listItem.querySelector(".uploaded-list-item-copy-url");
-    const removeButton = listItem.querySelector(".uploaded-list-item-remove");
 
-    listItem.dataset.id = id;
+    listItem.dataset.uploadNum = uploadNum;
+    listItem.classList.add("missing-data");
 
     let allFileNames = files[0].name;
     for (let i = 1; i < files.length; i++) {
@@ -166,11 +165,6 @@ function addUploadedListItem(files, id, key, hasPassword) {
     }
 
     link.title = allFileNames;
-    if (hasPassword) {
-        link.href = id.concat("#", key);
-    } else {
-        link.href = id.concat("?nopass", "#", key);
-    }
 
     fileName.innerHTML = files[0].name;
 
@@ -184,6 +178,18 @@ function addUploadedListItem(files, id, key, hasPassword) {
     uploadedList.appendChild(listItem);
 
     return listItem;
+}
+
+function setUploadedListItemData(listItem, id, key, hasPassword) {
+    listItem.classList.remove("missing-data");
+
+    const link = listItem.querySelector("A");
+
+    if (hasPassword) {
+        link.href = id.concat("#", key);
+    } else {
+        link.href = id.concat("?nopass", "#", key);
+    }
 }
 
 function copyUploadURL(button) {
@@ -200,9 +206,9 @@ function copyUploadURL(button) {
 }
 
 function removeUploadedListEntry(button) {
-    const id = button.parentElement.dataset.id;
+    const uploadNum = button.parentElement.dataset.uploadNum;
 
-    cancelUpload(id);
+    cancelUpload(uploadNum);
 
     button.parentElement.remove();
 }

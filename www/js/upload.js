@@ -1,39 +1,40 @@
 const uploadForm = document.getElementById("upload-form")
 const sockets = {};
+var uploadNum = 0;
 
 
-function cancelUpload(id) {
-    const socket = sockets[id];
+function cancelUpload(uploadNum) {
+    const socket = sockets[uploadNum];
 
     if (typeof socket !== typeof undefined) {
         socket.send("CANCEL");
         socket.close();
     }
 
-    delete sockets[id];
+    delete sockets[uploadNum];
 }
 
-function closeCallback(id, obj) {
+function closeCallback(close, obj) {
     // If the socket was closed prematurely, treat it as an error
     if (!obj.isCompleted) {
-        errorCallback(id, null, obj);
+        errorCallback(null, obj);
     }
 
-    delete sockets[id];
+    delete sockets[obj.uploadNum];
 }
 
-function errorCallback(id, error, obj) {
+function errorCallback(error, obj) {
     if (!obj.isCompleted) {
         obj.listItem.classList.add("failed");
     }
 
-    delete sockets[id];
+    delete sockets[obj.uploadNum];
 }
 
 function completionCallback(id, obj) {
     obj.listItem.classList.add("completed");
     obj.isCompleted = true;
-    delete sockets[id];
+    delete sockets[obj.uploadNum];
 }
 
 function progressCallback(id, bytes, obj) {
@@ -46,9 +47,7 @@ function progressCallback(id, bytes, obj) {
 }
 
 function idCallback(id, key, maxDownloads, password, obj) {
-    obj.listItem = addUploadedListItem(obj.files, id, key, password !== null);
-    obj.progressBar = obj.listItem.querySelector("PROGRESS");
-    sockets[id] = obj.socket;
+    setUploadedListItemData(obj.listItem, id, key, password !== null);
 }
 
 async function upload(e) {
@@ -112,6 +111,13 @@ async function upload(e) {
     obj.socket = await transpoUpload(
         url, files, minutes, maxDownloads, password, obj,
         progressCallback, completionCallback, idCallback, errorCallback, closeCallback);
+
+    sockets[uploadNum] = obj.socket;
+    obj.uploadNum = uploadNum;
+    uploadNum += 1;
+
+    obj.listItem = addUploadedListItem(files, obj.uploadNum);
+    obj.progressBar = obj.listItem.querySelector("PROGRESS");
 
     return false;
 }

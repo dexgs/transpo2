@@ -108,13 +108,12 @@ async function readToSocket(socket, reader) {
 //   - The value of `password` with which `upload` was called
 //   - `obj`
 //
-// `errorCallback` is called with 3 arguments:
-//  - A string containing the ID of the upload
+// `errorCallback` is called with 2 arguments:
 //  - The error event
 //  - `obj`
 //
 //  `closeCallback` is called with 2 arguments:
-//  - A string containing the ID of the upload
+//  - The close event
 //  - `obj`
 //
 // `idCallback` is called first. It is called after the server responds with the
@@ -124,9 +123,9 @@ async function readToSocket(socket, reader) {
 //
 // `completionCallback` is called when an upload finishes successfully.
 //
-// `errorCallback` is called wthen an error occurs during an upload.
+// `errorCallback` is called when the websocket raises an error.
 //
-// `closeCallback` is called when the socket closes.
+// `closeCallback` is called when the websocket closes.
 //
 //  NOTE: the callbacks will ONLY be called if their respective events are fired
 //  AFTER idCallback is triggered.
@@ -165,25 +164,27 @@ async function upload(
         url = url.concat("&password=", encodeURIComponent(password));
     }
 
+
+    const socket = new WebSocket(url);
+    socket.binaryType = "arraybuffer";
+
+    if (typeof errorCallback !== typeof undefined) {
+        socket.addEventListener('error', ev => {
+            errorCallback(ev, obj);
+        });
+    }
+
+    if (typeof closeCallback !== typeof undefined) {
+        socket.addEventListener('close', ev => {
+            closeCallback(ev, obj);
+        });
+    }
+
     const messageEventHandler = async e => {
         socket.removeEventListener('message', messageEventHandler);
 
         const id = e.data;
         const encodedKey = await encodeKey(key);
-
-
-        if (typeof errorCallback !== typeof undefined) {
-            socket.addEventListener('error', ev => {
-                errorCallback(id, ev, obj);
-            });
-        }
-
-
-        if (typeof closeCallback !== typeof undefined) {
-            socket.addEventListener('close', () => {
-                closeCallback(id, obj);
-            });
-        }
 
         if (typeof idCallback !== typeof undefined) {
             idCallback(id, encodedKey, maxDownloads, password, obj);
@@ -197,9 +198,6 @@ async function upload(
         await readToSocket(socket, reader);
     };
 
-    const socket = new WebSocket(url);
-
-    socket.binaryType = "arraybuffer";
     socket.addEventListener('message', messageEventHandler);
 
     return socket;
