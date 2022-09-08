@@ -178,6 +178,10 @@ ul#uploaded-list > li {
     animation: fade-in 0.2s linear 1, slide-up 0.2s ease-out 1;
 }
 
+li.missing-data > a, li.missing-data > button.uploaded-list-item-copy-url {
+    pointer-events: none;
+}
+
 ul#uploaded-list > li > a {
     font-weight: bold;
     text-decoration-thickness: 1px;
@@ -194,6 +198,7 @@ ul#uploaded-list > li.failed > a::before {
     color: var(--upload-failed-fg);
     background-color: var(--upload-failed-bg);
     text-decoration: underline var(--upload-failed-bg); 
+    border: 1px solid var(--upload-failed-bg);
     border-radius: 5px;
 }
 
