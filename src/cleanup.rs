@@ -28,8 +28,8 @@ fn cleanup_thread(
 
             if let Some(expired_upload_ids) = Upload::select_expired(&db_connection) {
                 for id in expired_upload_ids {
-                    delete_upload_dir(&storage_path, id);
                     Upload::delete_with_id(id, &db_connection);
+                    delete_upload_dir(&storage_path, id);
                 }
             }
 
