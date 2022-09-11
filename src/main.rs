@@ -70,7 +70,7 @@ fn main() {
         let config = Arc::new(config);
 
         spawn_cleanup_thread(
-            config.max_upload_age_minutes,
+            config.read_timeout_milliseconds,
             config.storage_dir.to_owned(),
             db_backend, config.db_url.to_owned());
 
