@@ -245,7 +245,7 @@ where C: connection::MigrationConnection,
       P: AsRef<Path>
 {
     mark_migrations_in_directory(db_connection, path.as_ref())
-        .unwrap()
+        .expect("Marking database migrations")
         .into_iter()
         .filter_map(|(m, is_applied)| if is_applied { None } else { Some(m) })
         .collect()
