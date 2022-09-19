@@ -21,6 +21,7 @@ environment variables. The available options are as follows:
                                                     complete or else the upload is aborted
  -d / TRANSPO_STORAGE_DIRECTORY            <path> : path to the directory where Transpo will store uploads
  -D / TRANSPO_DATABASE_URL             <path/url> : URL to which database connections will be made
+ -m / TRANSPO_MIGRATIONS_DIRECTORY         <path> : path to the directory containing migration directories.
  -n / TRANSPO_APP_NAME                   <string> : name shown in web interface
  -Q /                                             : quiet: do not print configuration on start
  -h /                                             : print this help message and exit
@@ -39,6 +40,7 @@ pub struct TranspoConfig {
     pub read_timeout_milliseconds: usize,
     pub storage_dir: PathBuf,
     pub db_url: String,
+    pub migrations_dir: PathBuf,
     pub app_name: String,
     pub quiet: bool
 }
@@ -68,6 +70,8 @@ impl Default for TranspoConfig {
 
             db_url: "./transpo_storage/db.sqlite".to_string(),
 
+            migrations_dir: PathBuf::from("./"),
+
             app_name: "Transpo".to_string(),
 
             quiet: false
@@ -83,6 +87,7 @@ impl TranspoConfig {
     {
         for (key, val) in vars {
             let field = match key.as_ref() {
+                // usize values
                 "TRANSPO_MAX_UPLOAD_AGE_MINUTES" => &mut self.max_upload_age_minutes,
                 "TRANSPO_MAX_UPLOAD_SIZE_BYTES" => &mut self.max_upload_size_bytes,
                 "TRANSPO_MAX_STORAGE_SIZE_BYTES" => &mut self.max_storage_size_bytes,
@@ -91,12 +96,18 @@ impl TranspoConfig {
                 "TRANSPO_QUOTA_BYTES" => &mut self.quota_bytes,
                 "TRANSPO_QUOTA_INTERVAL_MINUTES" => &mut self.quota_interval_minutes,
                 "TRANSPO_READ_TIMEOUT_MILLISECONDS" => &mut self.read_timeout_milliseconds,
+
+                // other values
                 "TRANSPO_STORAGE_DIRECTORY" => {
                     self.storage_dir = PathBuf::from(val.as_ref());
                     continue;
                 },
                 "TRANSPO_DATABASE_URL" => {
                     self.db_url = val.as_ref().to_string();
+                    continue;
+                },
+                "TRANSPO_MIGRATIONS_DIRECTORY" => {
+                    self.migrations_dir = PathBuf::from(val.as_ref());
                     continue;
                 },
                 "TRANSPO_APP_NAME" => {
@@ -120,6 +131,7 @@ impl TranspoConfig {
 
         while let Some(arg) = args.next() {
             let field = match arg.as_ref() {
+                // usize values
                 "-a" => &mut self.max_upload_age_minutes,
                 "-u" => &mut self.max_upload_size_bytes,
                 "-s" => &mut self.max_storage_size_bytes,
@@ -128,6 +140,8 @@ impl TranspoConfig {
                 "-q" => &mut self.quota_bytes,
                 "-i" => &mut self.quota_interval_minutes,
                 "-t" => &mut self.read_timeout_milliseconds,
+
+                // other values
                 "-d" => {
                     if let Some(next) = args.peek() {
                         self.storage_dir = PathBuf::from(next.as_ref());
@@ -137,6 +151,12 @@ impl TranspoConfig {
                 "-D" => {
                     if let Some(next) = args.peek() {
                         self.db_url = next.as_ref().to_string();
+                    }
+                    continue;
+                },
+                "-m" => {
+                    if let Some(next) = args.peek() {
+                        self.migrations_dir = PathBuf::from(next.as_ref());
                     }
                     continue;
                 },

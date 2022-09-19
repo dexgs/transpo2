@@ -242,7 +242,8 @@ impl Upload {
 
 fn get_migrations<C, P>(db_connection: &C, path: P) -> Vec<Box<dyn Migration + 'static>>
 where C: connection::MigrationConnection,
-      P: AsRef<Path> {
+      P: AsRef<Path>
+{
     mark_migrations_in_directory(db_connection, path.as_ref())
         .unwrap()
         .into_iter()
@@ -250,22 +251,25 @@ where C: connection::MigrationConnection,
         .collect()
 }
 
-pub fn run_migrations(db_connection: &DbConnection) {
+pub fn run_migrations<P>(db_connection: &DbConnection, path: P)
+where P: AsRef<Path>
+{
+    let path = path.as_ref();
     let stdout = &mut std::io::stdout();
     match db_connection {
         #[cfg(feature = "mysql")]
         DbConnection::Mysql(c) => {
-            let migrations: Vec<_> = get_migrations(c, "migrations");
+            let migrations: Vec<_> = get_migrations(c, path.join("migrations"));
             diesel_migrations::run_migrations(c, migrations, stdout)
         },
         #[cfg(feature = "postgres")]
         DbConnection::Pg(c) => {
-            let migrations: Vec<_> = get_migrations(c, "pg_migrations");
+            let migrations: Vec<_> = get_migrations(c, path.join("pg_migrations"));
             diesel_migrations::run_migrations(c, migrations, stdout)
         },
         #[cfg(feature = "sqlite")]
         DbConnection::Sqlite(c) => {
-            let migrations: Vec<_> = get_migrations(c, "migrations");
+            let migrations: Vec<_> = get_migrations(c, path.join("migrations"));
             diesel_migrations::run_migrations(c, migrations, stdout)
         }
     }.expect("Running database migrations");

@@ -62,6 +62,10 @@ description in a sub-item
 - `-D` / `TRANSPO_DATABASE_URL` `<path (for SQLite) or URL (for MySQL and PgSQL)>`
   - The connection string for the database Transpo will use
 
+- `m` / `TRANSPO_MIGRATIONS_DIRECTORY` `<path>`
+  - The directory containing database migration directories (`migrations/` and
+    `pg_migrations/`). Defaults to the current directory.
+
 - `-n` / `TRANSPO_APP_NAME` `<string>`
   - Name shown throughout the web interface.
 
