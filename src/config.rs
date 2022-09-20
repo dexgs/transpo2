@@ -80,91 +80,93 @@ impl Default for TranspoConfig {
 }
 
 impl TranspoConfig {
+    // parse config from environment variables
     pub fn parse_vars<I, S1, S2>(&mut self, vars: I)
     where I: Iterator<Item = (S1, S2)>,
           S1: AsRef<str>,
           S2: AsRef<str>
     {
-        for (key, val) in vars {
-            let field = match key.as_ref() {
-                // usize values
-                "TRANSPO_MAX_UPLOAD_AGE_MINUTES" => &mut self.max_upload_age_minutes,
-                "TRANSPO_MAX_UPLOAD_SIZE_BYTES" => &mut self.max_upload_size_bytes,
-                "TRANSPO_MAX_STORAGE_SIZE_BYTES" => &mut self.max_storage_size_bytes,
-                "TRANSPO_PORT" => &mut self.port,
-                "TRANSPO_COMPRESSION_LEVEL" => &mut self.compression_level,
-                "TRANSPO_QUOTA_BYTES" => &mut self.quota_bytes,
-                "TRANSPO_QUOTA_INTERVAL_MINUTES" => &mut self.quota_interval_minutes,
-                "TRANSPO_READ_TIMEOUT_MILLISECONDS" => &mut self.read_timeout_milliseconds,
-
-                // other values
-                "TRANSPO_STORAGE_DIRECTORY" => {
-                    self.storage_dir = PathBuf::from(val.as_ref());
-                    continue;
-                },
-                "TRANSPO_DATABASE_URL" => {
-                    self.db_url = val.as_ref().to_string();
-                    continue;
-                },
-                "TRANSPO_MIGRATIONS_DIRECTORY" => {
-                    self.migrations_dir = PathBuf::from(val.as_ref());
-                    continue;
-                },
-                "TRANSPO_APP_NAME" => {
-                    self.app_name = val.as_ref().to_string();
-                    continue;
-                },
-                _ => continue
-            };
-
-            if let Ok(parsed) = val.as_ref().parse() {
-                *field = parsed;
-            }
-        }
+        self.parse_options(vars);
     }
 
+    // parse config from command line arguments
     pub fn parse_args<I, S>(&mut self, args: I)
     where I: Iterator<Item = S>,
           S: AsRef<str>
     {
         let mut args = args.peekable();
+        let mut options = Vec::new();
 
         while let Some(arg) = args.next() {
-            let field = match arg.as_ref() {
-                // usize values
-                "-a" => &mut self.max_upload_age_minutes,
-                "-u" => &mut self.max_upload_size_bytes,
-                "-s" => &mut self.max_storage_size_bytes,
-                "-p" => &mut self.port,
-                "-c" => &mut self.compression_level,
-                "-q" => &mut self.quota_bytes,
-                "-i" => &mut self.quota_interval_minutes,
-                "-t" => &mut self.read_timeout_milliseconds,
+            if arg.as_ref().starts_with('-') {
+                let key = arg.as_ref().to_string();
+                let value = args.peek()
+                    .map(|s| s.as_ref())
+                    .unwrap_or("").to_string();
 
-                // other values
-                "-d" => {
-                    if let Some(next) = args.peek() {
-                        self.storage_dir = PathBuf::from(next.as_ref());
-                    }
-                    continue;
+                options.push((key, value));
+            }
+        }
+
+        self.parse_options(options.into_iter());
+    }
+
+    fn parse_options<I, S1, S2>(&mut self, options: I)
+    where I: Iterator<Item = (S1, S2)>,
+          S1: AsRef<str>,
+          S2: AsRef<str>
+    {
+        for (key, value) in options {
+            let key = key.as_ref();
+            let value = value.as_ref();
+
+            match key {
+                "-a" | "TRANSPO_MAX_UPLOAD_AGE_MINUTES" => {
+                    self.max_upload_age_minutes = value.parse()
+                        .expect("Parsing configured max upload age");
                 },
-                "-D" => {
-                    if let Some(next) = args.peek() {
-                        self.db_url = next.as_ref().to_string();
-                    }
-                    continue;
+                "-u" | "TRANSPO_MAX_UPLOAD_SIZE_BYTES" => {
+                    self.max_upload_size_bytes = value.parse()
+                        .expect("Parsing configured max upload file size");
                 },
-                "-m" => {
-                    if let Some(next) = args.peek() {
-                        self.migrations_dir = PathBuf::from(next.as_ref());
-                    }
-                    continue;
+                "-s" | "TRANSPO_MAX_STORAGE_SIZE_BYTES" => {
+                    self.max_storage_size_bytes = value.parse()
+                        .expect("Parsing configured max total storage size");
                 },
-                "-n" => {
-                    if let Some(next) = args.peek() {
-                        self.app_name = next.as_ref().to_string();
-                    }
-                    continue;
+                "-p" | "TRANSPO_PORT" => {
+                    self.port = value.parse()
+                        .expect("Parsing configured port");
+                },
+                "-c" | "TRANSPO_COMPRESSION_LEVEL" => {
+                    self.compression_level = value.parse()
+                        .expect("Parsing configured compression level");
+                },
+                "-q" | "TRANSPO_QUOTA_BYTES" => {
+                    self.quota_bytes = value.parse()
+                        .expect("Parsing configured upload quota limit");
+                },
+                "-i" | "TRANSPO_QUOTA_INTERVAL_MINUTES" => {
+                    self.quota_interval_minutes = value.parse()
+                        .expect("Parsing configured quota clear interval");
+                },
+                "-t" | "TRANSPO_READ_TIMEOUT_MILLISECONDS" => {
+                    self.read_timeout_milliseconds = value.parse()
+                        .expect("Parsing configured read timeout");
+                },
+                "-d" | "TRANSPO_STORAGE_DIRECTORY" => {
+                    self.storage_dir = value.parse()
+                        .expect("Parsing configured storage directory");
+                },
+                "-D" | "TRANSPO_DATABASE_URL" => {
+                    self.db_url = value.parse()
+                        .expect("Parsing configured storage directory");
+                },
+                "-m" | "TRANSPO_MIGRATIONS_DIRECTORY" => {
+                    self.migrations_dir = value.parse()
+                        .expect("Parsing configured migrations directory");
+                },
+                "-n" | "TRANSPO_APP_NAME" => {
+                    self.app_name = value.to_string();
                 },
                 "-h" | "--help" => {
                     println!("{}", HELP_MSG);
@@ -172,13 +174,8 @@ impl TranspoConfig {
                 },
                 "-Q" => {
                     self.quiet = true;
-                    continue;
                 },
-                _ => continue
-            };
-
-            if let Some(parsed) = args.peek().and_then(|a| a.as_ref().parse().ok()) {
-                *field = parsed;
+                _ => {}
             }
         }
     }
