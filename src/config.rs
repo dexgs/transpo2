@@ -64,7 +64,7 @@ impl Default for TranspoConfig {
             // 1 Hour
             quota_interval_minutes: 60,
 
-            read_timeout_milliseconds: 500,
+            read_timeout_milliseconds: 800,
 
             storage_dir: PathBuf::from("./transpo_storage"),
 
