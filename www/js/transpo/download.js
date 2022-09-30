@@ -4,8 +4,8 @@ const textDecoder = new TextDecoder("utf-8");
 
 
 // Parse the key from the URL fragment
-async function getKeyFromURL() {
-    const hash = window.location.hash;
+async function getKeyFromURL(url) {
+    const hash = url.hash;
     if (hash.length == 0) {
         return null;
     } else {
@@ -13,13 +13,12 @@ async function getKeyFromURL() {
     }
 }
 
-function getUploadIDFromURL() {
-    const pathElements = location.pathname.split("/");
+function getUploadIDFromURL(url) {
+    const pathElements = url.pathname.split("/");
 
     let uploadID = pathElements.pop();
-    if (uploadID.length == 0) {
-        // if the path ends with "/", the laste element of pathElements will be
-        // an empty string, so pop again to get the upload ID.
+    // strip off non-id parts of the path
+    while (uploadID == "" || uploadID == "dl" || uploadID == "dlws") {
         uploadID = pathElements.pop();
     }
 
@@ -36,98 +35,130 @@ function generateFileName(uploadID, mime) {
     return name;
 }
 
-async function decryptStream(response, key) { 
-    const reader = response.body.getReader();
+async function decryptedStream(url) {
+    const key = await decodeKey(url.hash.substring(1));
 
-    let cipherTextLength = 0;
-    let totalBytesRead = 0;
-    if (response.headers.has("Transpo-Ciphertext-Length")) {
-        cipherTextLength = parseInt(response.headers.get("Transpo-Ciphertext-Length"));
-    }
+    const socket = new WebSocket(
+        url.origin.replace("http", "ws")
+        + url.pathname.replace(/\/$/, "")
+        + "ws" + url.search);
+    socket.binaryType = "arraybuffer";
 
-    let fileCiphertext = new Uint8Array();
+    await new Promise(resolve => {
+        socket.onopen = resolve;
+    });
 
-    let segmentBytesRead = 0;
-    let segmentBuffer = new Uint8Array(maxCiphertextSegmentSize + 2);
+    let receivedBuffer = null;
+    let promise = null;
+    let wsResolve = null;
+
+    socket.addEventListener("message", msg => {
+        receivedBuffer = new Uint8Array(msg.data);
+        wsResolve();
+    });
+
+    socket.addEventListener("close", msg => {
+        wsResolve();
+    });
+
+    const EMPTY = new Uint8Array(0);
+
+    let segment = new Uint8Array(2 + maxCiphertextSegmentSize);
     let segmentWriteStart = 0;
-    let segmentSize = 0;
-    // since we first decrypt file name and mime type
+    // count starts at 2 since we first decrypt file name and mime type
     let count = 2;
+
+    promise = new Promise(resolve => {
+        wsResolve = resolve;
+    });
+    socket.send(EMPTY);
 
     return new ReadableStream({
         async pull(controller) {
-            if (segmentBytesRead >= fileCiphertext.length) {
-                const { value, done } = await reader.read();
-                if (done) {
-                    controller.error(new Error("Download closed prematurely"));
-                    return;
-                } else {
-                    fileCiphertext = value;
-                    segmentBytesRead = 0;
+            await promise;
 
-                    totalBytesRead += value.length;
-                    if (cipherTextLength != 0) {
-                        console.debug(totalBytesRead / cipherTextLength);
+            let buffer = receivedBuffer;
+            receivedBuffer = null;
+
+            if (buffer == null) {
+                buffer = new Uint8Array(2);
+            }
+
+            promise = new Promise(resolve => {
+                wsResolve = resolve;
+            });
+            socket.send(EMPTY);
+
+            let chunksEnqueued = 0;
+
+            // iterate while the segment buffer can be parsed OR there is still
+            // data avialable to read
+            let bytesRead = 0;
+            while (bytesRead < buffer.byteLength) {
+                const remainingSegment = segment.byteLength - segmentWriteStart;
+                const remainingBuffer = buffer.byteLength - bytesRead;
+                const iterLen = Math.min(remainingSegment, remainingBuffer);
+
+                for (let i = 0; i < iterLen; i++) {
+                    segment[segmentWriteStart + i] = buffer[bytesRead + i];
+                }
+
+                segmentWriteStart += iterLen;
+                bytesRead += iterLen;
+
+                while (segmentWriteStart >= 2) {
+                    const segmentSize = segment[0] * 256 + segment[1];
+
+                    if (segmentSize == 0) {
+                        controller.close();
+                        return;
+                    } else if (segmentSize > maxCiphertextSegmentSize) {
+                        controller.error(new Error("Invalid segment size"));
+                        return;
+                    }
+
+                    if (segmentWriteStart >= segmentSize + 2) {
+                        const segmentCiphertext = segment.subarray(2, segmentSize + 2);
+                        const segmentPlaintext = await decrypt(key, count, segmentCiphertext);
+                        count++;
+                        controller.enqueue(segmentPlaintext);
+                        chunksEnqueued++;
+
+                        const segmentEnd = segmentSize + 2;
+                        const leftover = segmentWriteStart - segmentEnd;
+                        for (let i = 0; i < leftover; i++) {
+                            segment[i] = segment[segmentEnd + i];
+                        }
+                        segmentWriteStart -= segmentEnd;
+                    } else {
+                        break;
                     }
                 }
             }
 
-            // If size prefix is not in `segmentBuffer`, copy it in.
-            if (segmentWriteStart < 2) {
-                let iterLen = Math.min(2 - segmentWriteStart, fileCiphertext.length - segmentBytesRead);
-                for (let i = 0; i < iterLen; i++) {
-                    segmentBuffer[segmentWriteStart + i] = fileCiphertext[segmentBytesRead + i];
-                }
-                segmentBytesRead += iterLen;
-                segmentWriteStart += iterLen;
-            }
-
-            if (segmentWriteStart >= 2) {
-                segmentSize = segmentBuffer[0] * 256 + segmentBuffer[1];
-
-                if (segmentSize == 0) {
-                    controller.close();
-                    return;
-                } else if (segmentSize > maxCiphertextSegmentSize) {
-                    controller.error(new Error("Invalid segment size"));
-                    return;
-                }
-            }
-
-            let iterLen = Math.min(segmentSize + 2 - segmentWriteStart, fileCiphertext.length - segmentBytesRead);
-            for (let i = 0; i < iterLen; i++) {
-                segmentBuffer[segmentWriteStart + i] = fileCiphertext[segmentBytesRead + i];
-            }
-            segmentBytesRead += iterLen;
-            segmentWriteStart += iterLen;
-
-            // If the whole segment is contained in `segmentBuffer`
-            if (segmentWriteStart - 2 == segmentSize) {
-                const segmentCiphertext = segmentBuffer.subarray(2, segmentSize + 2);
-                const segmentPlaintext = await decrypt(key, count, segmentCiphertext);
-                count++;
-
-                controller.enqueue(segmentPlaintext);
-
-                segmentSize = 0;
-                segmentWriteStart = 0;
-            } else {
-                controller.enqueue(new Uint8Array(0));
+            // Every call to pull is expected to enqueue something, so if we
+            // didn't decrypt any chunks this call, just enqueue the empty
+            // array as this will satisfy the caller without actually messing
+            // up the downloaded file.
+            if (chunksEnqueued == 0) {
+                controller.enqueue(EMPTY);
             }
         }
     });
 }
 
-// Return a response which wraps an encrypted response and decrypts the contents
-// of the contained response.
-async function decryptResponse(response, key, uploadID) {
-    const mimeCipher = response.headers.get("Content-Type");
-    const nameCipher = response.headers.get("Content-Disposition")
-        .replace("attachment; filename=", "")
-        .replaceAll("\"", "");
+async function decryptedResponse(url) {
+    const key = await getKeyFromURL(url);
+    const uploadID = getUploadIDFromURL(url);
 
-    const nameCipherBytes = stringToBytes(b64Decode(nameCipher));
-    const mimeCipherBytes = stringToBytes(b64Decode(mimeCipher));
+    const r = await fetch(uploadID + "/info" + url.search);
+    if (!r.ok) {
+        return r;
+    }
+
+    const info = await r.json();
+    const nameCipherBytes = stringToBytes(b64Decode(info.name));
+    const mimeCipherBytes = stringToBytes(b64Decode(info.mime));
 
     const nameBytes = await decrypt(key, 0, nameCipherBytes);
     const mimeBytes = await decrypt(key, 1, mimeCipherBytes);
@@ -141,32 +172,27 @@ async function decryptResponse(response, key, uploadID) {
     } else {
         name = textDecoder.decode(nameBytes);
     }
-
     name = encodeURIComponent(name);
-
-    const stream = await decryptStream(response, key);
 
     const headers = new Headers();
     headers.append("Content-Type", mime);
     headers.append("Content-Disposition", "attachment; filename=\"" + name + "\"");
-
-    if (response.headers.has("Transpo-Ciphertext-Length")) {
-        // A hack, but most browsers make use of Content-Length, even for
-        // chunked responses.
-        headers.append("Content-Length", response.headers.get("Transpo-Ciphertext-Length"));
-    }
+    headers.append("Content-Length", String(info.size));
 
     const init = {
         "status": 200,
         "headers": headers
     };
 
-    let decryptedResponse = new Response(stream, init);
-    return decryptedResponse;
+    const stream = await decryptedStream(url);
+
+    return new Response(stream, init);
 }
 
 // create a file download prompt for a response
-async function downloadResponse(response, uploadID) {
+async function downloadResponse(response, url) {
+    const uploadID = getUploadIDFromURL(url);
+
     let name = response.headers.get("Content-Disposition")
         .replace("attachment; filename=", "")
         .replaceAll("\"", "");
@@ -179,10 +205,10 @@ async function downloadResponse(response, uploadID) {
     }
 
     const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
+    const blobHref = URL.createObjectURL(blob);
     const a = document.createElement("A");
 
-    a.href = url;
+    a.href = blobHref;
     a.download = name;
     a.type = mime;
 
@@ -192,15 +218,10 @@ async function downloadResponse(response, uploadID) {
 }
 
 async function download(url) {
-    const key = await getKeyFromURL();
-    const uploadID = getUploadIDFromURL();
-
-    const response = await fetch(url);
+    const response = await decryptedResponse(url);
 
     if (response.ok) {
-        const decryptedResponse = await decryptResponse(response, key, uploadID);
-        await downloadResponse(decryptedResponse, uploadID);
-
+        await downloadResponse(response, url);
         return true;
     } else {
         return false;
@@ -213,4 +234,4 @@ if (typeof window != typeof undefined) {
     window.transpoGetUploadIDFromURL = getUploadIDFromURL;
 }
 
-export { getKeyFromURL, getUploadIDFromURL, decryptResponse, download, downloadResponse };
+export { getKeyFromURL, getUploadIDFromURL, decryptedResponse, download, downloadResponse };

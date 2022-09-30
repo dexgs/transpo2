@@ -37,12 +37,22 @@ use trillium_static::{files, crate_relative_path};
 
 const X_REAL_IP: &'static str = "X-Real-IP";
 
-const WS_CONFIG: WebSocketConfig = WebSocketConfig {
+const WS_UPLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
     max_send_queue: None,
     max_message_size: Some(FORM_READ_BUFFER_SIZE * 2),
     max_frame_size: Some(FORM_READ_BUFFER_SIZE * 2),
     accept_unmasked_frames: false
 };
+
+const WS_DOWNLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
+    max_send_queue: Some(1),
+    max_message_size: Some(0),
+    max_frame_size: Some(0),
+    accept_unmasked_frames: false
+};
+
+const ID_STRING_LENGTH: usize = base64_encode_length(ID_LENGTH);
+
 
 #[derive(Clone)]
 struct TranspoState {
@@ -153,14 +163,14 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     async move {
                         drop(upload::handle_websocket(conn, state.config, db_backend, quotas_data).await)
                     }
-                }).with_protocol_config(WS_CONFIG)))
+                }).with_protocol_config(WS_UPLOAD_CONFIG)))
                 .get("/:file_id", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
                     let file_id = conn.param("file_id").unwrap().to_owned();
                     let app_name = state.config.app_name.clone();
 
                     async move {
-                        if file_id.len() == base64_encode_length(ID_LENGTH) {
+                        if file_id.len() == ID_STRING_LENGTH {
                             let template = DownloadTemplate {
                                 file_id,
                                 app_name,
@@ -175,6 +185,14 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         }
                     }
                 }))
+                .get("/:file_id/info", (State::new(state.clone()), move |mut conn: Conn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
+                    let file_id = conn.param("file_id").unwrap().to_owned();
+
+                    async move {
+                        download::info(conn, file_id, state.config, state.accessors, db_backend).await
+                    }
+                }))
                 .get("/:file_id/dl", (State::new(state.clone()), move |mut conn: Conn| {
                     let state = conn.take_state::<TranspoState>().unwrap();
                     let file_id = conn.param("file_id").unwrap().to_owned();
@@ -183,6 +201,18 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         download::handle(conn, file_id, state.config, state.accessors, db_backend).await
                     }
                 }))
+                .get("/:file_id/dlws", (State::new(state.clone()), websocket(move |mut conn: WebSocketConn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
+
+                    async move {
+                        if conn.path().len() < 1 + ID_STRING_LENGTH {
+                            drop(conn.close().await)
+                        } else {
+                            let file_id = conn.path()[1..ID_STRING_LENGTH + 1].to_owned();
+                            drop(download::handle_websocket(conn, file_id, state.config, state.accessors, db_backend).await)
+                        }
+                    }
+                }).with_protocol_config(WS_DOWNLOAD_CONFIG)))
                 .get("/clear-data", move |conn: Conn| {
                     async move {
                         conn

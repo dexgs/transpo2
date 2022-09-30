@@ -19,6 +19,8 @@ environment variables. The available options are as follows:
  -i / TRANSPO_QUOTA_INTERVAL_MINUTES     <number> : number of minutes before quotas are reset
  -t / TRANSPO_READ_TIMEOUT_MILLISECONDS  <number> : number of milliseconds before which each read must
                                                     complete or else the upload is aborted
+ -T / TRANSPO_WS_DL_TIMEOUT_MILLISECONDS <number> : number of milliseconds before WebSocket send/receive
+                                                    operations time out during a download.
  -d / TRANSPO_STORAGE_DIRECTORY            <path> : path to the directory where Transpo will store uploads
  -D / TRANSPO_DATABASE_URL             <path/url> : URL to which database connections will be made
  -m / TRANSPO_MIGRATIONS_DIRECTORY         <path> : path to the directory containing migration directories.
@@ -38,6 +40,7 @@ pub struct TranspoConfig {
     pub quota_bytes: usize,
     pub quota_interval_minutes: usize,
     pub read_timeout_milliseconds: usize,
+    pub websocket_dl_timeout_milliseconds: usize,
     pub storage_dir: PathBuf,
     pub db_url: String,
     pub migrations_dir: PathBuf,
@@ -65,6 +68,8 @@ impl Default for TranspoConfig {
             quota_interval_minutes: 60,
 
             read_timeout_milliseconds: 800,
+
+            websocket_dl_timeout_milliseconds: 800,
 
             storage_dir: PathBuf::from("./transpo_storage"),
 
@@ -152,6 +157,10 @@ impl TranspoConfig {
                 "-t" | "TRANSPO_READ_TIMEOUT_MILLISECONDS" => {
                     self.read_timeout_milliseconds = value.parse()
                         .expect("Parsing configured read timeout");
+                },
+                "-T" | "TRANSPO_WS_DL_TIMEOUT_MILLISECONDS" => {
+                    self.websocket_dl_timeout_milliseconds = value.parse()
+                        .expect("Parsing configured WebSocket download timeout");
                 },
                 "-d" | "TRANSPO_STORAGE_DIRECTORY" => {
                     self.storage_dir = value.parse()

@@ -377,8 +377,6 @@ async fn websocket_read_loop(
                     writer.write_all(&b).await?;
                 }
             },
-            Message::Ping(b) => conn.send(Message::Pong(b)).await
-                .map_err(|_| Error::from(ErrorKind::ConnectionAborted))?,
             Message::Close(_) => {
                 writer.flush().await?;
                 return Ok(());
@@ -510,7 +508,8 @@ where R: AsyncReadExt + Unpin
         return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
     }
 
-    let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
+    let timeout_duration = time::Duration::from_millis(
+        config.read_timeout_milliseconds as u64);
     let mut upload_success = false;
     let mut buf = [0; FORM_READ_BUFFER_SIZE];
     let boundary_byte_map = byte_map(boundary.as_bytes());

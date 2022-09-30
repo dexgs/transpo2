@@ -56,6 +56,10 @@ description in a sub-item
     WebSocket message in order to keep the connection open. This is used to let
     the server close idle connections.
 
+- `-T` / `TRANSPO_WS_DL_TIMEOUT_MILLISECONDS` `<number>`
+  - Number of milliseconds before WebSocket send/receive operations time out
+    during a download.
+
 - `-d` / `TRANSPO_STORAGE_DIRECTORY` `<path>`
   - The path to the directory in which Transpo will store uploads.
 

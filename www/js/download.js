@@ -22,10 +22,10 @@ async function downloadEventHandlerSW(e) {
 async function downloadEventHandlerNoSW(e) {
     e.preventDefault();
 
-    const dlPath = location.pathname.concat("/dl");
+    const url = new URL(location.origin + location.pathname + "/dl" + location.hash);
 
-    if (!await transpoDownload(dlPath)) {
-        window.location = dlPath;
+    if (!await transpoDownload(url)) {
+        window.location = url;
     }
 }
 
@@ -46,6 +46,9 @@ async function setupWorkerAndDownload(updateWorker) {
         await setupWorker(updateWorker);
         await navigator.serviceWorker.getRegistration();
         navigator.serviceWorker.controller.postMessage(appName);
+
+        // Keep the service worker alive
+        pokeWorker();
     } catch (error) {
         console.error(error);
         return false;
@@ -54,8 +57,21 @@ async function setupWorkerAndDownload(updateWorker) {
     return true;
 }
 
+// Firefox will kill the ServiceWorker if it decides that the worker is
+// "inactive."
+//
+// At the time of writing this, firefox decides that the worker is inactive
+// even if it contains an active websocket connection. To counter this, we
+// send an empty message to the service worker every 5 seconds.
+//
+// It seems like this resets whatever mechanism Firefox uses to track
+// "inactive" workers, which stops it from killing the worker while a download
+// is in progress.
+function pokeWorker() {
+    navigator.serviceWorker.controller.postMessage(new ArrayBuffer(0));
+    setTimeout(pokeWorker, 5_000);
+}
 
-let eventListener;
 
 if ("serviceWorker" in navigator) {
     eventListener = downloadEventHandlerSW;

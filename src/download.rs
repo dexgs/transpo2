@@ -8,9 +8,14 @@ use crate::http_errors::*;
 
 use std::io::{Read, Result};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use blocking::*;
+use smol::stream::StreamExt;
+use smol::io::AsyncReadExt;
+use smol_timeout::TimeoutExt;
 use trillium::{Conn, Body};
+use trillium_websockets::{WebSocketConn, Message};
 
 use urlencoding::{decode, encode};
 
@@ -68,6 +73,194 @@ where R: Read {
     }
 }
 
+#[derive(Default)]
+struct DownloadQuery {
+    crypto_key: Option<Vec<u8>>,
+    password: Option<Vec<u8>>
+}
+
+fn parse_query(query: &str) -> DownloadQuery {
+    let mut parsed = DownloadQuery::default();
+
+    for field in query.split('&') {
+        if let Some((key, value)) = field.split_once('=') {
+            match key {
+                "key" => {
+                    if value.len() == base64_encode_length(256 / 8) {
+                        parsed.crypto_key = Some(value.to_owned().into_bytes())
+                    }
+                },
+                "password" => parsed.password = decode(value)
+                    .ok()
+                    .and_then(|s| Some(s.into_owned().into_bytes())),
+                _ => {}
+            }
+        }
+    }
+
+    parsed
+}
+
+fn get_upload(
+    id: i64, config: &TranspoConfig,
+    accessors: &Accessors, db_backend: DbBackend,
+    db_connection: &DbConnection) -> Option<Upload>
+{
+    let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
+    let mut accessor = accessor_mutex.lock().unwrap();
+
+    let row = Upload::select_with_id(id, &db_connection)?;
+
+    // If the row is expired and we are the only accessor, clean it up!
+    let upload = if row.is_expired() {
+        if accessor.is_only_accessor() {
+            Upload::delete_with_id(accessor.id, &db_connection);
+            delete_upload_dir(&config.storage_dir, accessor.id);
+        }
+        None
+    } else {
+        Some(row)
+    };
+
+    accessor.revoke();
+
+    upload
+}
+
+fn check_password(password: &Option<Vec<u8>>, upload: &Upload) -> bool {
+    let hash_string = upload.password_hash.as_ref()
+        .map(|h| String::from_utf8_lossy(h).to_string());
+
+    match hash_string {
+        Some(hash_string) => {
+            let hash_and_password = PasswordHash::new(&hash_string).ok()
+                .zip(password.as_ref());
+
+            if let Some((hash, password)) = hash_and_password {
+                Argon2::default().verify_password(password, &hash).is_ok()
+            } else {
+                false
+            }
+        },
+        None => true
+    }
+}
+
+
+pub async fn info(
+    conn: Conn, id_string: String, config: Arc<TranspoConfig>,
+    accessors: Accessors, db_backend: DbBackend) -> Conn
+{
+    if id_string.len() != base64_encode_length(ID_LENGTH) {
+        return error_404(conn, config);
+    }
+
+    let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
+
+    let query = parse_query(conn.querystring());
+    let password = query.password;
+
+    let config_ = config.clone();
+    let info = unblock(move || {
+        let db_connection = establish_connection(db_backend, &config_.db_url);
+        let upload = get_upload(id, &config_, &accessors, db_backend, &db_connection)?;
+        let upload_path = config_.storage_dir.join(&id_string).join("upload");
+        let ciphertext_size = get_file_size(&upload_path).ok()?;
+
+        if !check_password(&password, &upload) {
+            None
+        } else {
+            Some((upload.file_name, upload.mime_type, ciphertext_size))
+        }
+    }).await;
+
+    match info {
+        Some((file_name, mime_type, file_size)) => {
+            conn
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(format!("{{ \
+                        \"name\": \"{}\", \
+                        \"mime\": \"{}\", \
+                        \"size\": {} \
+                    }}",
+                    file_name, mime_type, file_size))
+                .halt()
+        },
+        None => {
+            error_400(conn, config)
+        }
+    }
+}
+
+pub async fn handle_websocket(
+    mut conn: WebSocketConn, id_string: String, config: Arc<TranspoConfig>,
+    accessors: Accessors, db_backend: DbBackend) -> Option<()>
+{
+    // A websocket download *MUST* be client-side decrypted
+
+    let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
+
+    let query = parse_query(conn.querystring());
+    let password = query.password;
+
+    let timeout_duration = Duration::from_millis(
+        config.websocket_dl_timeout_milliseconds as u64);
+
+    let mut reader = unblock(move || {
+        let db_connection = establish_connection(db_backend, &config.db_url);
+        let upload = get_upload(id, &config, &accessors, db_backend, &db_connection)?;
+
+        if !check_password(&password, &upload) {
+            return None;
+        }
+
+        let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
+        Upload::decrement_remaining_downloads(id, &db_connection)?;
+
+        let upload_path = config.storage_dir.join(&id_string).join("upload");
+        let file_reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
+
+        let reader = Reader {
+            reader: file_reader,
+            accessor_mutex,
+            db_backend,
+            config
+        };
+
+        Some(Unblock::with_capacity(FORM_READ_BUFFER_SIZE * 2, reader))
+    }).await?;
+
+    while let Some(Ok(msg)) = conn
+        .next()
+        .timeout(timeout_duration).await
+        .flatten()
+    {
+        match msg {
+            // Client sends empty byte array to request more data
+            Message::Binary(_) => {
+                let mut buf = vec![0u8; FORM_READ_BUFFER_SIZE + 16];
+                let bytes_read = reader.read(&mut buf).await.ok()?;
+
+                if bytes_read == 0 {
+                    drop(conn.close().await);
+                    break;
+                } else {
+                    buf.truncate(bytes_read);
+                    conn
+                        .send_bytes(buf)
+                        .timeout(timeout_duration).await?;
+                }
+            },
+            _ => {
+                drop(conn.close().await);
+            }
+        }
+    }
+
+    Some(())
+}
+
 
 pub async fn handle(
     conn: Conn, id_string: String, config: Arc<TranspoConfig>,
@@ -79,70 +272,26 @@ pub async fn handle(
 
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
 
-    let query = conn.querystring();
-    
-    let mut crypto_key: Option<Vec<u8>> = None;
-    let mut password: Option<Vec<u8>> = None;
-
-    // Parse the query string
-    for field in query.split('&') {
-        if let Some((key, value)) = field.split_once('=') {
-            match key {
-                "key" => {
-                    if value.len() == base64_encode_length(256 / 8) {
-                        crypto_key = Some(value.to_owned().into_bytes())
-                    }
-                },
-                "password" => password = decode(value)
-                    .ok()
-                    .and_then(|s| Some(s.into_owned().into_bytes())),
-                _ => return error_400(conn, config)
-            }
-        }
-    }
+    let query = parse_query(conn.querystring());
+    let crypto_key = query.crypto_key;
+    let password = query.password;
 
     let response: Option<(Body, String, String, u64)> = {
         let config = config.clone();
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
 
-            let upload = {
-                let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
-                let mut accessor = accessor_mutex.lock().unwrap();
-
-                let row = Upload::select_with_id(id, &db_connection)?;
-
-                // If the row is expired and we are the only accessor, clean it up!
-                let upload = if row.is_expired() {
-                    if accessor.is_only_accessor() {
-                        Upload::delete_with_id(accessor.id, &db_connection);
-                        delete_upload_dir(&config.storage_dir, accessor.id);
-                    }
-                    None
-                } else {
-                    Some(row)
-                };
-
-                accessor.revoke();
-
-                upload
-            }?;
-
+            let upload = get_upload(id, &config, &accessors, db_backend, &db_connection)?;
 
             // validate password
-            let password_hash = upload.password_hash
-                .and_then(|h| Some(String::from_utf8(h).unwrap()));
-            if let Some(password_hash) = password_hash {
-                let parsed_hash = PasswordHash::new(&password_hash).ok()?;
-                Argon2::default().verify_password(&password?, &parsed_hash).ok()?;
+            if !check_password(&password, &upload) {
+                return None;
             }
 
+            let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
             Upload::decrement_remaining_downloads(id, &db_connection)?;
 
-
-            let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
             let upload_path = config.storage_dir.join(&id_string).join("upload");
-
             let ciphertext_size = get_file_size(&upload_path).ok()?;
 
             let (body, file_name, mime_type) = match crypto_key {

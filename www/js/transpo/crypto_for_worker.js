@@ -74,7 +74,7 @@ async function genKey() {
         length: 256,
     };
 
-    return await crypto.subtle.generateKey(params, true, ["encrypt", "decrypt"]);
+    return await crypto.subtle.generateKey(params, true, ["encrypt"]);
 }
 
 // Base64 encode a key
@@ -92,7 +92,7 @@ async function decodeKey(b64) {
         bytes[i] = decoded.charCodeAt(i);
     }
 
-    return await crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+    return await crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["decrypt"]);
 }
 
 // Encrypt plaintext with the given key
