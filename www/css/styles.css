@@ -194,12 +194,18 @@ ul#uploaded-list > li > a::before {
     pointer-events: none;
 }
 
+ul#uploaded-list > li.failed > a {
+    pointer-events: none;
+}
+
 ul#uploaded-list > li.failed > a::before {
     color: var(--upload-failed-fg);
     background-color: var(--upload-failed-bg);
-    text-decoration: underline var(--upload-failed-bg); 
-    border: 1px solid var(--upload-failed-bg);
+    text-decoration: underline var(--upload-failed-bg) 2px;
     border-radius: 5px;
+
+    font-size: 11px;
+    padding: 2px 5px;
 }
 
 ul#uploaded-list > li > progress {

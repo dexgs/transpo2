@@ -277,6 +277,7 @@ ul#uploaded-list > li.failed > button.uploaded-list-item-copy-url {
 ul#uploaded-list > li.failed > a::before {
     display: block;
     margin-right: 2px;
+    height: min-content;
 
     text-align: center;
 }
