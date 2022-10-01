@@ -15,25 +15,16 @@ function cancelUpload(uploadNum) {
 }
 
 function closeCallback(close, obj) {
-    // If the socket was closed prematurely, treat it as an error
-    if (!obj.isCompleted) {
-        errorCallback(null, obj);
-    }
-
     delete sockets[obj.uploadNum];
 }
 
 function errorCallback(error, obj) {
-    if (!obj.isCompleted) {
-        obj.listItem.classList.add("failed");
-    }
-
+    obj.listItem.classList.add("failed");
     delete sockets[obj.uploadNum];
 }
 
 function completionCallback(id, obj) {
     obj.listItem.classList.add("completed");
-    obj.isCompleted = true;
     delete sockets[obj.uploadNum];
 }
 
@@ -90,7 +81,6 @@ async function upload(e) {
         socket: null,
         listItem: null,
         progressBar: null,
-        isCompleted: false
     };
 
     let urlPrefix;

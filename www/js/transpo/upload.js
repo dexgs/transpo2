@@ -4,7 +4,7 @@ import { downloadZip } from "./client-zip/index.js";
 const textEncoder = new TextEncoder("utf-8");
 
 
-async function encryptStream(files, key, id, obj, progressCallback, completionCallback) {
+async function encryptStream(files, key, id, obj, progressCallback) {
     let fileStream;
     if (files.length == 1) {
         fileStream = files[0].stream();
@@ -29,11 +29,6 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
                 if (done) {
                     controller.enqueue(new Uint8Array(2));
                     controller.close();
-
-                    if (typeof completionCallback !== typeof undefined) {
-                        completionCallback(id, obj);
-                    }
-
                     return;
                 } else {
                     filePlaintext = value;
@@ -63,11 +58,18 @@ async function encryptStream(files, key, id, obj, progressCallback, completionCa
     });
 }
 
-async function readToSocket(socket, reader) {
+async function readToSocket(socket, reader, progressTracker) {
     while (socket.readyState == WebSocket.OPEN) {
         const { done, value } = await reader.read();
         if (done) {
-            socket.close();
+            progressTracker.uploadSucceeded = true;
+
+            if (
+                socket.readyState != WebSocket.CLOSING
+                && socket.readyState != WebSocket.CLOSED)
+            {
+                socket.close();
+            }
         } else {
             socket.send(value);
         }
@@ -137,6 +139,11 @@ async function upload(
 
     let nameBytes;
     let mimeBytes;
+    let id = null;
+
+    let progressTracker = {
+        uploadSucceeded: false
+    };
 
     if (files.length == 1) {
         nameBytes = textEncoder.encode(files[0].name);
@@ -177,13 +184,21 @@ async function upload(
     if (typeof closeCallback !== typeof undefined) {
         socket.addEventListener('close', ev => {
             closeCallback(ev, obj);
+
+            if (progressTracker.uploadSucceeded) {
+                if (typeof completionCallback !== typeof undefined) {
+                    completionCallback(id, obj);
+                }
+            } else if (typeof errorCallback !== typeof undefined) {
+                errorCallback(ev, obj);
+            }
         });
     }
 
     const messageEventHandler = async e => {
         socket.removeEventListener('message', messageEventHandler);
 
-        const id = e.data;
+        id = e.data;
         const encodedKey = await encodeKey(key);
 
         if (typeof idCallback !== typeof undefined) {
@@ -192,10 +207,10 @@ async function upload(
 
         const stream = await encryptStream(
             files, key, id, obj,
-            progressCallback, completionCallback);
+            progressCallback);
         const reader = stream.getReader();
 
-        await readToSocket(socket, reader);
+        await readToSocket(socket, reader, progressTracker);
     };
 
     socket.addEventListener('message', messageEventHandler);
