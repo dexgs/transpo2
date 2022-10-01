@@ -111,6 +111,7 @@ async function decryptedStream(url) {
             }
         }
     }, {
+        // backpressure
         size(chunk) {
             return 0;
         }
