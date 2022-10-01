@@ -8,14 +8,9 @@ use crate::http_errors::*;
 
 use std::io::{Read, Result};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use blocking::*;
-use smol::stream::StreamExt;
-use smol::io::AsyncReadExt;
-use smol_timeout::TimeoutExt;
 use trillium::{Conn, Body};
-use trillium_websockets::{WebSocketConn, Message};
 
 use urlencoding::{decode, encode};
 
@@ -191,74 +186,6 @@ pub async fn info(
             error_400(conn, config)
         }
     }
-}
-
-pub async fn handle_websocket(
-    mut conn: WebSocketConn, id_string: String, config: Arc<TranspoConfig>,
-    accessors: Accessors, db_backend: DbBackend) -> Option<()>
-{
-    // A websocket download *MUST* be client-side decrypted
-
-    let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
-
-    let query = parse_query(conn.querystring());
-    let password = query.password;
-
-    let timeout_duration = Duration::from_millis(
-        config.websocket_dl_timeout_milliseconds as u64);
-
-    let mut reader = unblock(move || {
-        let db_connection = establish_connection(db_backend, &config.db_url);
-        let upload = get_upload(id, &config, &accessors, db_backend, &db_connection)?;
-
-        if !check_password(&password, &upload) {
-            return None;
-        }
-
-        let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
-        Upload::decrement_remaining_downloads(id, &db_connection)?;
-
-        let upload_path = config.storage_dir.join(&id_string).join("upload");
-        let file_reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
-
-        let reader = Reader {
-            reader: file_reader,
-            accessor_mutex,
-            db_backend,
-            config
-        };
-
-        Some(Unblock::with_capacity(FORM_READ_BUFFER_SIZE * 2, reader))
-    }).await?;
-
-    while let Some(Ok(msg)) = conn
-        .next()
-        .timeout(timeout_duration).await
-        .flatten()
-    {
-        match msg {
-            // Client sends empty byte array to request more data
-            Message::Binary(_) => {
-                let mut buf = vec![0u8; FORM_READ_BUFFER_SIZE + 16];
-                let bytes_read = reader.read(&mut buf).await.ok()?;
-
-                if bytes_read == 0 {
-                    drop(conn.close().await);
-                    break;
-                } else {
-                    buf.truncate(bytes_read);
-                    conn
-                        .send_bytes(buf)
-                        .timeout(timeout_duration).await?;
-                }
-            },
-            _ => {
-                drop(conn.close().await);
-            }
-        }
-    }
-
-    Some(())
 }
 
 

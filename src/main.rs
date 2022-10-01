@@ -44,13 +44,6 @@ const WS_UPLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
     accept_unmasked_frames: false
 };
 
-const WS_DOWNLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
-    max_send_queue: Some(1),
-    max_message_size: Some(0),
-    max_frame_size: Some(0),
-    accept_unmasked_frames: false
-};
-
 const ID_STRING_LENGTH: usize = base64_encode_length(ID_LENGTH);
 
 
@@ -201,18 +194,6 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                         download::handle(conn, file_id, state.config, state.accessors, db_backend).await
                     }
                 }))
-                .get("/:file_id/dlws", (State::new(state.clone()), websocket(move |mut conn: WebSocketConn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-
-                    async move {
-                        if conn.path().len() < 1 + ID_STRING_LENGTH {
-                            drop(conn.close().await)
-                        } else {
-                            let file_id = conn.path()[1..ID_STRING_LENGTH + 1].to_owned();
-                            drop(download::handle_websocket(conn, file_id, state.config, state.accessors, db_backend).await)
-                        }
-                    }
-                }).with_protocol_config(WS_DOWNLOAD_CONFIG)))
                 .get("/clear-data", move |conn: Conn| {
                     async move {
                         conn

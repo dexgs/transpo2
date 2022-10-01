@@ -45,30 +45,6 @@ function generateFileName(uploadID, mime) {
 
 async function decryptedStream(url) {
     const key = await getKeyFromURL(url);
-
-    const socket = new WebSocket(
-        url.origin.replace("http", "ws")
-        + url.pathname.replace(/\/$/, "")
-        + "ws" + url.search);
-    socket.binaryType = "arraybuffer";
-
-    await new Promise(resolve => {
-        socket.onopen = resolve;
-    });
-
-    let receivedBuffer = null;
-    let promise = null;
-    let wsResolve = null;
-
-    socket.addEventListener("message", msg => {
-        receivedBuffer = new Uint8Array(msg.data);
-        wsResolve();
-    });
-
-    socket.addEventListener("close", msg => {
-        wsResolve();
-    });
-
     const EMPTY = new Uint8Array(0);
 
     let segment = new Uint8Array(2 + maxCiphertextSegmentSize);
@@ -76,26 +52,9 @@ async function decryptedStream(url) {
     // count starts at 2 since we first decrypt file name and mime type
     let count = 2;
 
-    promise = new Promise(resolve => {
-        wsResolve = resolve;
-    });
-    socket.send(EMPTY);
-
-    return new ReadableStream({
-        async pull(controller) {
-            await promise;
-
-            let buffer = receivedBuffer;
-            receivedBuffer = null;
-
-            if (buffer == null) {
-                buffer = new Uint8Array(2);
-            }
-
-            promise = new Promise(resolve => {
-                wsResolve = resolve;
-            });
-            socket.send(EMPTY);
+    const decryptTransformer = new TransformStream({
+        async transform(buffer, controller) {
+            // const buffer = chunk;
 
             let chunksEnqueued = 0;
             // iterate while the segment buffer can be parsed OR there is still
@@ -117,7 +76,7 @@ async function decryptedStream(url) {
                     const segmentSize = segment[0] * 256 + segment[1];
 
                     if (segmentSize == 0) {
-                        controller.close();
+                        controller.terminate();
                         return;
                     } else if (segmentSize > maxCiphertextSegmentSize) {
                         controller.error(new Error("Invalid segment size"));
@@ -151,7 +110,14 @@ async function decryptedStream(url) {
                 controller.enqueue(EMPTY);
             }
         }
+    }, {
+        size(chunk) {
+            return 0;
+        }
     });
+
+    const r = await fetch(url);
+    return r.body.pipeThrough(decryptTransformer);
 }
 
 async function decryptedResponse(url) {
