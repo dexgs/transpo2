@@ -55,6 +55,70 @@ const PASSWORD_CD: &'static str = "form-data; name=\"password\"";
 
 const VALUE_ON: &'static str = "on";
 
+
+const MINUTES_QUERY: &'static str = "minutes";
+const PASSWORD_QUERY: &'static str = "password";
+const MAX_DOWNLOADS_QUERY: &'static str = "max-downloads";
+const FILE_NAME_QUERY: &'static str = "file-name";
+const MIME_TYPE_QUERY: &'static str = "mime-type";
+
+
+#[derive(Default)]
+struct UploadQuery {
+    minutes: Option<u32>,
+    max_downloads: Option<u32>,
+    password: Option<String>,
+    file_name: Option<Vec<u8>>,
+    mime_type: Option<Vec<u8>>
+}
+
+impl UploadQuery {
+    fn new(query: &str) -> Option<Self> {
+        let mut upload_query = Self::default();
+
+        for field in query.split('&') {
+            if let Some((key, value)) = field.split_once('=') {
+                if upload_query.is_key_defined(key) {
+                    return None;
+                }
+
+                match key {
+                    MINUTES_QUERY => upload_query.minutes = Some(value.parse().ok()?),
+                    PASSWORD_QUERY => upload_query.password = Some(decode(value).ok().map(|s| s.into_owned())?),
+                    MAX_DOWNLOADS_QUERY => upload_query.max_downloads = Some(value.parse().ok()?),
+                    FILE_NAME_QUERY => upload_query.file_name = Some(value.to_owned().into_bytes()),
+                    MIME_TYPE_QUERY => upload_query.mime_type = Some(value.to_owned().into_bytes()),
+                    _ => return None
+                }
+            }
+        }
+
+        Some(upload_query)
+    }
+
+    fn is_key_defined(&self, key: &str) -> bool {
+        match key {
+            MINUTES_QUERY => self.minutes.is_some(),
+            PASSWORD_QUERY => self.password.is_some(),
+            MAX_DOWNLOADS_QUERY => self.max_downloads.is_some(),
+            FILE_NAME_QUERY => self.file_name.is_some(),
+            MIME_TYPE_QUERY => self.mime_type.is_some(),
+            _ => false
+        }
+    }
+
+    fn get_values(self) -> Option<(u32, Option<u32>, Option<String>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+        Some((
+                self.minutes?,
+                self.max_downloads,
+                self.password,
+                self.file_name,
+                self.mime_type
+        ))
+    }
+}
+
+
 #[derive(PartialEq, Debug)]
 enum FormField {
     ServerSideProcessing,
@@ -89,7 +153,7 @@ fn match_content_disposition(cd: &str) -> FormField {
     }
 }
 
-#[derive(Debug)]
+#[derive(Default)]
 struct UploadForm {
     server_side_processing: Option<bool>,
     enable_multiple_files: Option<bool>,
@@ -103,18 +167,32 @@ struct UploadForm {
 }
 
 impl UploadForm {
-    fn new() -> Self {
-        Self {
-            server_side_processing: None,
-            enable_multiple_files: None,
-            days: None,
-            hours: None,
-            minutes: None,
-            enable_max_downloads: None,
-            max_downloads: None,
-            enable_password: None,
-            password: None
+    fn new(
+        server_side_processing: bool, minutes: u32, max_downloads: Option<u32>,
+        password: Option<String>) -> Self
+    {
+        let mut form = Self::default();
+        form.server_side_processing = Some(server_side_processing);
+
+        let days = minutes / (60 * 24);
+        let hours = (minutes % (60 * 24)) / 60;
+        let minutes = minutes % 60;
+
+        form.days = Some(days as u16);
+        form.hours = Some(hours as u8);
+        form.minutes = Some(minutes as u8);
+
+        if let Some(max_downloads) = max_downloads {
+            form.enable_max_downloads = Some(true);
+            form.max_downloads = Some(max_downloads as u32);
         }
+
+        if let Some(password) = password {
+            form.enable_password = Some(true);
+            form.password = Some(password);
+        }
+
+        form
     }
 
     fn is_valid_field(&self, field: &FormField) -> bool {
@@ -191,6 +269,10 @@ impl UploadForm {
     fn is_password_protected(&self) -> bool {
         self.enable_password.unwrap_or(false) && self.password.is_some()
     }
+
+    fn has_time_limit(&self) -> bool {
+        self.minutes.is_some() && self.hours.is_some() && self.days.is_some()
+    }
 }
 
 
@@ -242,35 +324,11 @@ pub async fn handle_websocket(
     mut conn: WebSocketConn, config: Arc<TranspoConfig>,
     db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
 {
-    let query = conn.querystring();
+    let query = UploadQuery::new(conn.querystring());
 
-    let mut minutes: Option<usize> = None;
-    let mut password: Option<String> = None;
-    let mut max_downloads: Option<usize> = None;
-    let mut file_name: Vec<u8> = vec![];
-    let mut mime_type: Vec<u8> = vec![];
-
-    for field in query.split('&') {
-        if let Some((key, value)) = field.split_once('=') {
-            match key {
-                "minutes" => minutes = value.parse().ok(),
-                "password" => password = decode(value).ok().map(|s| s.into_owned()),
-                "max-downloads" => max_downloads = value.parse().ok(),
-                "file-name" => file_name = value.to_owned().into_bytes(),
-                "mime-type" => mime_type = value.to_owned().into_bytes(),
-                _ => {
-                    conn.close().await.map_err(|_| Error::new(
-                            ErrorKind::Other,
-                            "Failed to close websocket gracefully"))?;
-                    return Err(Error::new(ErrorKind::InvalidData, "Invalid query"));
-                }
-            }
-        }
-    }
-
-    if minutes.is_some() && !file_name.is_empty() && !mime_type.is_empty() {
-        let minutes = minutes.unwrap();
-
+    if let Some((minutes, max_downloads, password, file_name, mime_type)) =
+        query.and_then(|q| q.get_values())
+    {
         let (upload_id, upload_id_string, upload_dir) = {
             let storage_path = config.storage_dir.clone();
             unblock(|| create_upload_storage_dir(storage_path))
@@ -278,32 +336,10 @@ pub async fn handle_websocket(
 
         let upload_path = upload_dir.join("upload");
 
-        let form = {
-            let mut form = UploadForm::new();
-
-            let days = minutes / (60 * 24);
-            let hours = (minutes % (60 * 24)) / 60;
-            let minutes = minutes % 60;
-
-            form.days = Some(days as u16);
-            form.hours = Some(hours as u8);
-            form.minutes = Some(minutes as u8);
-
-            if let Some(max_downloads) = max_downloads {
-                form.enable_max_downloads = Some(true);
-                form.max_downloads = Some(max_downloads as u32);
-            }
-
-            if let Some(password) = password {
-                form.enable_password = Some(true);
-                form.password = Some(password);
-            }
-
-            form
-        };
+        let form = UploadForm::new(true, minutes, max_downloads, password);
 
         let db_write_succeeded = write_to_db(
-            form, upload_id, Some(file_name), Some(mime_type),
+            form, upload_id, file_name, mime_type,
             db_backend, config.clone()).await.is_some();
 
         if db_write_succeeded {
@@ -421,17 +457,38 @@ pub async fn handle_post(
 
     let mut file_writer: Option<Writer> = None;
     let mut key: Option<Vec<u8>> = None;
-    let mut file_name: Option<Vec<u8>> = None;
-    let mut mime_type: Option<Vec<u8>> = None;
 
-    let mut form = UploadForm::new();
+    let query = UploadQuery::new(conn.querystring());
+
+    let (mut form, mut file_name, mut mime_type) = if let Some(
+        (minutes, max_downloads, password, file_name, mime_type))
+        = query.and_then(|q| q.get_values())
+    {
+        (UploadForm::new(true, minutes, max_downloads, password), file_name, mime_type)
+    } else {
+        (UploadForm::default(), None, None)
+    };
+
+    let mut db_write_success = false;
+
+    // If a time limit has already been provided via the query string, write
+    // the current data in the form to the DB to allow the file to be downloaded
+    // while it uploads. If the client did not include the needed information
+    // in the query string, it must provide it in the form body which will be
+    // read by `parse_upload_form`.
+    if form.has_time_limit() {
+        db_write_success = write_to_db(
+            form, upload_id.clone(), file_name, mime_type,
+            db_backend, config.clone()).await.is_some();
+        file_name = None;
+        mime_type = None;
+        form = UploadForm::default();
+    }
 
     let req_body = conn.request_body().await;
-
     let parse_result = parse_upload_form(
         req_body, boundary, &upload_path, &mut form, &mut file_writer, &mut key,
         &mut file_name, &mut mime_type, config.clone(), quotas_data).await;
-
     let parse_success = match parse_result {
         Ok(result) => result,
         Err(_) => false
@@ -439,9 +496,15 @@ pub async fn handle_post(
 
     let is_password_protected = form.is_password_protected();
 
-    let upload_success = parse_success && write_to_db(
-        form, upload_id.clone(), file_name, mime_type,
-        db_backend, config.clone()).await.is_some();
+    // If a DB entry has not yet been written for the upload, and parsing the
+    // upload body succeeded, try to write one now.
+    if parse_success && !db_write_success {
+        db_write_success = write_to_db(
+            form, upload_id.clone(), file_name, mime_type,
+            db_backend, config.clone()).await.is_some();
+    }
+
+    let upload_success = parse_success && db_write_success;
 
     // Respond to the client
     if upload_success {
