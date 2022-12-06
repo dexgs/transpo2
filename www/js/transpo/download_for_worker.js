@@ -33,93 +33,120 @@ function getUploadIDFromURL(url) {
     return uploadID;
 }
 
-function generateFileName(uploadID, mime) {
-    let name = appName.concat("_", uploadID);
+// `state` is an object with the following fields:
+// - `segment` buffer into which ciphertext is written
+// - `segmentWriteStart` index into segment where next read should be inserted
+// - `count` number of decryptions so far
+async function decryptBufferAndEnqueue(buffer, controller, key, state) {
+    const EMPTY = new Uint8Array(0);
 
-    if (mime == "application/zip") {
-        name = name.concat(".zip");
+    let chunksEnqueued = 0;
+    // iterate while the segment buffer can be parsed OR there is still
+    // data avialable to read
+    let bytesRead = 0;
+
+    while (bytesRead < buffer.byteLength) {
+        const remainingSegment = state.segment.byteLength - state.segmentWriteStart;
+        const remainingBuffer = buffer.byteLength - bytesRead;
+        const iterLen = Math.min(remainingSegment, remainingBuffer);
+
+        for (let i = 0; i < iterLen; i++) {
+            state.segment[state.segmentWriteStart + i] = buffer[bytesRead + i];
+        }
+
+        state.segmentWriteStart += iterLen;
+        bytesRead += iterLen;
+
+        while (state.segmentWriteStart >= 2) {
+            const segmentSize = state.segment[0] * 256 + state.segment[1];
+
+            if (segmentSize == 0) {
+                if (typeof controller.terminate == typeof undefined) {
+                    controller.close();
+                } else {
+                    controller.terminate();
+                }
+                return;
+            } else if (state.segmentSize > maxCiphertextSegmentSize) {
+                controller.error(new Error("Invalid segment size"));
+                return;
+            }
+
+            if (state.segmentWriteStart >= segmentSize + 2) {
+                const segmentCiphertext = state.segment.subarray(2, segmentSize + 2);
+                const segmentPlaintext = await decrypt(key, state.count, segmentCiphertext);
+                state.count++;
+                controller.enqueue(segmentPlaintext);
+                chunksEnqueued++;
+
+                const segmentEnd = segmentSize + 2;
+                const leftover = state.segmentWriteStart - segmentEnd;
+                for (let i = 0; i < leftover; i++) {
+                    state.segment[i] = state.segment[segmentEnd + i];
+                }
+                state.segmentWriteStart -= segmentEnd;
+            } else {
+                break;
+            }
+        }
     }
 
-    return name;
+    // Every call to pull is expected to enqueue something, so if we
+    // didn't decrypt any chunks this call, just enqueue the empty
+    // array as this will satisfy the caller without actually messing
+    // up the downloaded file.
+    if (chunksEnqueued == 0) {
+        controller.enqueue(EMPTY);
+    }
 }
 
 async function decryptedStream(url) {
     const key = await getKeyFromURL(url);
-    const EMPTY = new Uint8Array(0);
 
     let segment = new Uint8Array(2 + maxCiphertextSegmentSize);
     let segmentWriteStart = 0;
     // count starts at 2 since we first decrypt file name and mime type
     let count = 2;
 
-    const decryptTransformer = new TransformStream({
-        async transform(buffer, controller) {
-            // const buffer = chunk;
-
-            let chunksEnqueued = 0;
-            // iterate while the segment buffer can be parsed OR there is still
-            // data avialable to read
-            let bytesRead = 0;
-            while (bytesRead < buffer.byteLength) {
-                const remainingSegment = segment.byteLength - segmentWriteStart;
-                const remainingBuffer = buffer.byteLength - bytesRead;
-                const iterLen = Math.min(remainingSegment, remainingBuffer);
-
-                for (let i = 0; i < iterLen; i++) {
-                    segment[segmentWriteStart + i] = buffer[bytesRead + i];
-                }
-
-                segmentWriteStart += iterLen;
-                bytesRead += iterLen;
-
-                while (segmentWriteStart >= 2) {
-                    const segmentSize = segment[0] * 256 + segment[1];
-
-                    if (segmentSize == 0) {
-                        controller.terminate();
-                        return;
-                    } else if (segmentSize > maxCiphertextSegmentSize) {
-                        controller.error(new Error("Invalid segment size"));
-                        return;
-                    }
-
-                    if (segmentWriteStart >= segmentSize + 2) {
-                        const segmentCiphertext = segment.subarray(2, segmentSize + 2);
-                        const segmentPlaintext = await decrypt(key, count, segmentCiphertext);
-                        count++;
-                        controller.enqueue(segmentPlaintext);
-                        chunksEnqueued++;
-
-                        const segmentEnd = segmentSize + 2;
-                        const leftover = segmentWriteStart - segmentEnd;
-                        for (let i = 0; i < leftover; i++) {
-                            segment[i] = segment[segmentEnd + i];
-                        }
-                        segmentWriteStart -= segmentEnd;
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            // Every call to pull is expected to enqueue something, so if we
-            // didn't decrypt any chunks this call, just enqueue the empty
-            // array as this will satisfy the caller without actually messing
-            // up the downloaded file.
-            if (chunksEnqueued == 0) {
-                controller.enqueue(EMPTY);
-            }
-        }
-    }, {
-        // backpressure
-        size(chunk) {
-            return 0;
-        }
-    });
+    let state = {
+        'segment': segment,
+        'segmentWriteStart': segmentWriteStart,
+        'count': count
+    };
 
     const r = await fetch(url);
-    return r.body.pipeThrough(decryptTransformer);
+
+    let stream;
+
+    if (typeof TransformStream == typeof undefined) {
+        // If TransformStream is unavailable, use ReadableStream
+        const reader = r.body.getReader();
+        stream = new ReadableStream({
+            async pull(controller) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    controller.close();
+                } else {
+                    await decryptBufferAndEnqueue(value, controller, key, state);
+                }
+            }
+        });
+    } else {
+        stream = r.body.pipeThrough(new TransformStream({
+            async transform(buffer, controller) {
+                await decryptBufferAndEnqueue(buffer, controller, key, state);
+            }
+        }, {
+            // backpressure
+            size(chunk) {
+                return 0;
+            }
+        }));
+    }
+
+    return stream;
 }
+
 
 async function decryptedResponse(url) {
     const key = await getKeyFromURL(url);
