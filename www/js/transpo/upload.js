@@ -3,6 +3,9 @@ import { downloadZip } from "./client-zip/index.js";
 
 const textEncoder = new TextEncoder("utf-8");
 
+const MAX_BUFFERED_AMOUNT = 10_000_000;
+const MAX_SEND_WAIT_MS = 100;
+
 
 async function encryptStream(files, key, id, obj, progressCallback) {
     let fileStream;
@@ -71,6 +74,15 @@ async function readToSocket(socket, reader, progressTracker) {
                 socket.close();
             }
         } else {
+            // wait for the buffered amount to fall before enqueuing more data.
+            let wait_ms = 1;
+            while (socket.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+                await new Promise(r => setTimeout(r, wait_ms));
+                if (wait_ms < MAX_SEND_WAIT_MS / 2) {
+                    wait_ms *= 2;
+                }
+            }
+
             socket.send(value);
         }
     }
