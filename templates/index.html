@@ -50,7 +50,6 @@ fieldset.togglable-field div {
         <div id="header">
             <h1 id="title">{{ app_name }}</h1>
             <a href="about">About<span class="hidden"> {{ app_name }}</span></a>
-            <a href="https://github.com/dexgs/transpo2">Source</a>
         </div>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
@@ -173,6 +172,11 @@ fieldset.togglable-field div {
             </div>
         </div>
 
+        <footer>
+            <a href="https://github.com/dexgs/transpo2">Source code</a> (AGPLv3)
+            © 2022 Transpo Contributors.
+        </footer>
+
 
         <template id="file-list-item-template" style="display: none;">
             <li data-index="">
@@ -204,7 +208,7 @@ fieldset.togglable-field div {
                     </span>
                 </a>
                 <button class="uploaded-list-item-remove" onclick="removeUploadedListEntry(this)">
-                    <span class="hidden">Remove URL </span>×
+                    <span class="hidden">Remove </span>×
                 </button>
                 <progress value="0" max="100"></progress>
             </li>

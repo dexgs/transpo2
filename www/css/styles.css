@@ -231,6 +231,10 @@ div#about {
     line-height: 1.5;
 }
 
+footer a {
+    color: var(--footer-link-fg);
+}
+
 .throbber::before {
     background-image: url("../res/throbber.png");
     background-size: contain;

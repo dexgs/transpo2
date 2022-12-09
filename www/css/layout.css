@@ -300,6 +300,11 @@ ul#uploaded-list > li.completed > progress {
     opacity: 0%;
 }
 
+footer {
+    position: fixed;
+    bottom: 10px;
+}
+
 
 .throbber::before {
     content: "";
