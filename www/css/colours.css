@@ -1,75 +1,93 @@
 :root {
-    --shadow: rgba(0, 0, 0, 0.2);
-    --page-bg: white;
+    /* Main colours */
+    --accent-bg: #2171bf;
+    --accent-fg: white;
+    --accent-border: #133366;
 
-    --text-fg: #0a173e;
+    --link-fg: #306cd7;
 
-    --file-area-bg: aliceblue;
-    --file-area-border: steelblue;
+    --area-bg: aliceblue;
+    --area-border: steelblue;
 
-    --uploaded-area-bg: aliceblue;
-    --uploaded-area-border: steelblue;
+    --base-bg: white;
+    --base-fg: #0a173e;
 
-    --ui-bg: white;
+    --error-bg: crimson;
+    --error-fg: white;
 
     --remove-button-fg: crimson;
     --remove-button-bg: white;
-
-    --file-button-bg: #2171bf;
-    --file-button-fg: white;
-
-    --upload-button-bg: #2171bf;
-    --upload-button-fg: white;
-    --upload-button-border: #133366;
-
-    --download-button-bg: #2171bf;
-    --download-button-fg: white;
-    --download-button-border: #133366;
-
-    --progress-bar-bg: transparent;
-    --progress-bar-fg: steelblue;
-    --progress-bar-border: steelblue;
-
-    --upload-url-fg: #2171bf;
-    --upload-failed-fg: white;
-    --upload-failed-bg: crimson;
-
-    --copy-url-button-bg: #2171bf;
-    --copy-url-button-fg: white;
 
     --warning-bg: #ffd557;
     --warning-fg: black;
     --warning-border: goldenrod;
 
-    --header-link-fg: #306cd7;
-    --footer-link-fg: #306cd7;
-    --upload-link-fg: #306cd7;
+    /* Specific colours */
+    --shadow: rgba(0, 0, 0, 0.2);
+    --page-bg: var(--base-bg);
+    --text-fg: var(--base-fg);
 
-    --checkbox-color: #2171bf;
+    --file-area-bg: var(--area-bg);
+    --file-area-border: var(--area-border);
+
+    --uploaded-area-bg: var(--area-bg);
+    --uploaded-area-border: var(--area-border);
+
+    --ui-bg: var(--base-bg);
+    --ui-border: var(--base-fg);
+
+    --file-button-bg: var(--accent-bg);
+    --file-button-fg: var(--accent-fg);
+
+    --upload-button-bg: var(--accent-bg);
+    --upload-button-fg: var(--accent-fg);
+    --upload-button-border: var(--accent-border);
+
+    --download-button-bg: var(--accent-bg);
+    --download-button-fg: var(--accent-fg);
+    --download-button-border: var(--accent-border);
+
+    --progress-bar-bg: transparent;
+    --progress-bar-fg: var(--area-border);
+    --progress-bar-border: var(--area-border);
+
+    --upload-url-fg: var(--accent-bg);
+    --upload-failed-fg: var(--error-fg);
+    --upload-failed-bg: var(--error-bg);
+
+    --copy-url-button-bg: var(--accent-bg);
+    --copy-url-button-fg: var(--accent-fg);
+
+    --header-link-fg: var(--link-fg);
+    --footer-link-fg: var(--link-fg);
+    --upload-link-fg: var(--link-fg);
+
+    --checkbox-color: var(--accent-bg);
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
         --shadow: black;
 
-        --page-bg: #030d22;
+        --accent-border: #030d22;
 
-        --text-fg: aliceblue;
+        --link-fg: #98d0ff;
+        --upload-url-fg: var(--link-fg);
+
+        --base-bg: var(--accent-border);
+        --base-fg: aliceblue;
 
         --ui-bg: #1f2d48;
+        --ui-border: var(--accent-border);
 
-        --file-area-bg: #354564;
-
-        --uploaded-area-bg: #354564;
+        --area-bg: #354564;
 
         --remove-button-fg: #fb5274;
         --remove-button-bg: transparent;
 
-        --progress-bar-fg: #98d0ff;
-        --progress-bar-border: #98d0ff;
+        --progress-bar-fg: var(--link-fg);
+        --progress-bar-border: var(--link-fg);
 
-        --header-link-fg: #98d0ff;
-
-        --upload-url-fg: #98d0ff;
+        --area-border: var(--accent-border);
     }
 }

@@ -30,15 +30,16 @@ a.upload-link {
     color: var(--upload-link-fg);
 }
 
-div.ui-frame {
-    box-shadow: 0 2px 5px var(--shadow);
-    background: var(--ui-bg);
-}
-
 div.ui-frame, div#file-area, div#uploaded-area,
 .nojs-warning, div.max-upload-size-warning {
     border: 1px solid;
     border-radius: 5px;
+}
+
+div.ui-frame {
+    box-shadow: 0 2px 5px var(--shadow);
+    border-color: var(--ui-border);
+    background: var(--ui-bg);
 }
 
 div#file-area {
