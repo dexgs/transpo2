@@ -47,10 +47,10 @@ fieldset.togglable-field div {
         <noscript>
             <iframe width="0" height="0" src="clear-data" style="display: none;"></iframe>
         </noscript>
-        <div id="header">
+        <header id="header">
             <h1 id="title">{{ app_name }}</h1>
             <a href="about">About<span class="hidden"> {{ app_name }}</span></a>
-        </div>
+        </header>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
                 <noscript>
@@ -67,9 +67,9 @@ fieldset.togglable-field div {
                         </span>
                     </div>
 
-                    <div class="hidden" aria-hidden="true">
+                    <div class="hidden" aria-hidden="true" hidden>
                         <hr/>
-                        <b>IGNORE THIS -></b>
+                        <b>IGNORE THIS →</b>
                         <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked/>
                         <i>
                             This checkbox indicates to the server whether or not
@@ -99,7 +99,7 @@ fieldset.togglable-field div {
                         <ul id="file-list"></ul>
                     </div>
 
-                    <div id="file-area-footer" class="flex-row" style="visibility: hidden;">
+                    <div id="file-area-footer" class="flex-row" style="visibility: hidden;" hidden>
                         <span>
                             Upload size:
                             <output id="upload-size-output"></output>
@@ -185,7 +185,7 @@ fieldset.togglable-field div {
                 <span class="hidden">, File size:</span>
                 <span class="file-list-item-size"></span>
                 <button type="button" class="file-list-item-remove">
-                    <span class="hidden">Remove file </span>×
+                    <span class="hidden">Remove file </span><span aria-hidden="true">×</span>
                 </button>
             </li>
         </template>
@@ -208,7 +208,7 @@ fieldset.togglable-field div {
                     </span>
                 </a>
                 <button class="uploaded-list-item-remove" onclick="removeUploadedListEntry(this)">
-                    <span class="hidden">Remove </span>×
+                    <span class="hidden">Remove </span><span aria-hidden="true">×</span>
                 </button>
                 <progress value="0" max="100"></progress>
             </li>

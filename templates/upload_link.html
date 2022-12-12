@@ -16,11 +16,10 @@
         <title>{{ app_name }} | Your Upload</title>
     </head>
     <body>
-        <div id="header">
+        <header id="header">
             <h1 id="title">Your Upload</h1>
             <a href="../">Main Page</a>
-            <a href="../about">About<span class="hidden"> {{ app_name }}</span></a>
-        </div>
+        </header>
         <div class="ui-frame flex-column">
             <a href="{{ upload_url }}" target="_blank" class="upload-link"/>
                 Copy this URL to share your files (upload ID: {{ upload_id }})

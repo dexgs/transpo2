@@ -47,14 +47,14 @@ body {
     margin: auto;
 }
 
-div#header {
+header#header {
     width: 100%;
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
 }
 
-div#header > a {
+header#header > a {
     margin-left: 5px;
 }
 

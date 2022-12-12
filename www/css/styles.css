@@ -19,7 +19,7 @@ h1#title::before {
     margin-top: 20px;
 }
 
-div#header > a {
+header#header > a {
     color: #306cd7;
     color: var(--header-link-fg);
 }

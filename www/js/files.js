@@ -91,8 +91,10 @@ function updateFileList(prevNumFiles) {
     if (files.length > 0) {
         uploadSizeOutput.innerHTML = sizeString(uploadSize);
         fileAreaFooter.style.visibility = "";
+        fileAreaFooter.hidden = false;
     } else {
         fileAreaFooter.style.visibility = "hidden";
+        fileAreaFooter.hidden = true;
     }
 
     if (uploadSize > maxUploadSize) {
