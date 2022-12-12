@@ -304,6 +304,8 @@ footer {
     z-index: -1;
     position: fixed;
     bottom: 10px;
+    left: 0;
+    width: 100%;
     text-align: center;
 }
 
