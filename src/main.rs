@@ -12,11 +12,13 @@ mod db;
 mod cleanup;
 mod quotas;
 mod http_errors;
+mod translations;
 
 #[macro_use]
 extern crate diesel;
 
 use config::*;
+use translations::*;
 use constants::*;
 use b64::*;
 use templates::*;
@@ -50,6 +52,7 @@ const ID_STRING_LENGTH: usize = base64_encode_length(ID_LENGTH);
 #[derive(Clone)]
 struct TranspoState {
     config: Arc<TranspoConfig>,
+    translations: Arc<Translations>,
     accessors: Accessors,
     quotas: Option<Quotas>
 }
@@ -63,6 +66,11 @@ fn main() {
         println!("Running with: {:#?}", &config);
     }
 
+    let translations = translations::Translations::new(
+            &config.translations_dir,
+            &config.default_lang)
+        .expect("Loading translations");
+
     fs::create_dir_all(&config.storage_dir)
         .expect("Creating storage directory");
 
@@ -71,13 +79,14 @@ fn main() {
         db::run_migrations(&db_connection, &config.migrations_dir);
 
         let config = Arc::new(config);
+        let translations = Arc::new(translations);
 
         spawn_cleanup_thread(
             config.read_timeout_milliseconds,
             config.storage_dir.to_owned(),
             db_backend, config.db_url.to_owned());
 
-        trillium_main(config, db_backend);
+        trillium_main(config, translations, db_backend);
     } else {
         eprintln!("A database connection is required!");
         std::process::exit(1);
@@ -94,11 +103,40 @@ fn addr_from_headers(headers: &Headers) -> Option<IpAddr> {
         .and_then(|a| a.parse().ok())
 }
 
-fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
+// query -> cookie -> default
+fn get_lang(conn: &mut Conn, default_lang: &str) -> String {
+    let mut query_lang = None;
+    let query_string = conn.querystring().to_string();
+    for arg in query_string.split("&") {
+        if let Some((key, value)) = arg.split_once("=") {
+            if key.trim() == "lang" {
+                let value = value.trim();
+                query_lang = Some(value);
+                conn.headers_mut()
+                    .insert("Set-Cookie", format!("lang={}", value));
+                break;
+            }
+        }
+    }
+
+    let mut cookie_lang = None;
+    if let Some(cookie) = conn.headers().get_str("Cookie") {
+        for arg in cookie.split(";") {
+            if let Some((key, value)) = arg.split_once("=") {
+                if key.trim() == "lang" {
+                    cookie_lang = Some(value.trim());
+                    break;
+                }
+            }
+        }
+    }
+
+    query_lang.or(cookie_lang).unwrap_or(default_lang).to_string()
+}
+
+fn trillium_main(config: Arc<TranspoConfig>, translations: Arc<Translations>, db_backend: db::DbBackend) {
     env_logger::init();
 
-    let index = IndexTemplate::from(config.as_ref());
-    let about = AboutTemplate::from(config.as_ref());
     let quotas = if config.quota_bytes == 0 {
         None
     } else {
@@ -112,6 +150,7 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
 
     let state = TranspoState {
         config: config.clone(),
+        translations: translations.clone(),
         accessors: accessors.clone(),
         quotas: quotas.clone(),
     };
@@ -121,22 +160,33 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
         .with_port(config.port as u16)
         .run(
             Router::new()
-                .get("/", move |conn: Conn| {
-                    let index = index.clone();
-                    async move { 
-                        conn
-                            .render(index)
-                            .halt()
+                .get("/", (State::new(state.clone()), move |mut conn: Conn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
+
+                    async move {
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+
+                        let index = IndexTemplate::new(
+                            state.config.as_ref(),
+                            state.translations.names(),
+                            &lang,
+                            state.translations.get(&lang)
+                            );
+
+                        conn.render(index).halt()
                     }
-                })
-                .get("/about", move |conn: Conn| {
-                    let about = about.clone();
-                    async move { 
-                        conn
-                            .render(about)
-                            .halt()
+                }))
+                .get("/about", (State::new(state.clone()), move |mut conn: Conn| {
+                    let state = conn.take_state::<TranspoState>().unwrap();
+
+                    async move {
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+                        let translation = state.translations.get(&lang);
+                        let about = AboutTemplate::new(&state.config, translation);
+
+                        conn.render(about).halt()
                     }
-                })
+                }))
                 .get("/download_worker.js", files(crate_relative_path!("www/js")))
                 .get("/js/*", files(crate_relative_path!("www/js")))
                 .get("/css/*", files(crate_relative_path!("www/css")))
@@ -146,7 +196,10 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let quotas_data = get_quotas_data(state.quotas, conn.headers());
 
                     async move {
-                        upload::handle_post(conn, state.config, db_backend, quotas_data).await
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+                        let translation = state.translations.get(&lang);
+
+                        upload::handle_post(conn, state.config, translation, db_backend, quotas_data).await
                     }
                 }))
                 .get("/upload", (State::new(state.clone()), websocket(move |mut conn: WebSocketConn| {
@@ -163,18 +216,20 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let app_name = state.config.app_name.clone();
 
                     async move {
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+                        let translation = state.translations.get(&lang);
+
                         if file_id.len() == ID_STRING_LENGTH {
                             let template = DownloadTemplate {
                                 file_id,
                                 app_name,
-                                has_password: conn.querystring() != "nopass"
+                                has_password: conn.querystring() != "nopass",
+                                t: translation
                             };
 
-                            conn
-                                .render(template)
-                                .halt()
+                            conn.render(template).halt()
                         } else {
-                            http_errors::error_404(conn, state.config)
+                            http_errors::error_404(conn, state.config, translation)
                         }
                     }
                 }))
@@ -183,7 +238,12 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let file_id = conn.param("file_id").unwrap().to_owned();
 
                     async move {
-                        download::info(conn, file_id, state.config, state.accessors, db_backend).await
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+                        let translation = state.translations.get(&lang);
+
+                        download::info(
+                            conn, file_id, state.config,
+                            state.accessors, translation, db_backend).await
                     }
                 }))
                 .get("/:file_id/dl", (State::new(state.clone()), move |mut conn: Conn| {
@@ -191,7 +251,12 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let file_id = conn.param("file_id").unwrap().to_owned();
 
                     async move {
-                        download::handle(conn, file_id, state.config, state.accessors, db_backend).await
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+                        let translation = state.translations.get(&lang);
+
+                        download::handle(
+                            conn, file_id, state.config,
+                            state.accessors, translation, db_backend).await
                     }
                 }))
                 .get("/clear-data", move |conn: Conn| {
@@ -207,7 +272,10 @@ fn trillium_main(config: Arc<TranspoConfig>, db_backend: db::DbBackend) {
                     let state = conn.take_state::<TranspoState>().unwrap();
 
                     async move {
-                        http_errors::error_404(conn, state.config)
+                        let lang = get_lang(&mut conn, &state.config.default_lang);
+                        let translation = state.translations.get(&lang);
+
+                        http_errors::error_404(conn, state.config, translation)
                     }
                 }))
         );

@@ -38,6 +38,7 @@
 
     --file-button-bg: var(--accent-bg);
     --file-button-fg: var(--accent-fg);
+    --file-button-border: var(--accent-border);
 
     --upload-button-bg: var(--accent-bg);
     --upload-button-fg: var(--accent-fg);
@@ -57,6 +58,7 @@
 
     --copy-url-button-bg: var(--accent-bg);
     --copy-url-button-fg: var(--accent-fg);
+    --copy-url-button-border: var(--accent-border);
 
     --header-link-fg: var(--link-fg);
     --footer-link-fg: var(--link-fg);

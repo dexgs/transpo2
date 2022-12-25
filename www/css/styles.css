@@ -24,6 +24,10 @@ header#header > a {
     color: var(--header-link-fg);
 }
 
+form#language-select-form::before {
+    content: "🌐";
+}
+
 a.upload-link {
     font-weight: bold;
     color: #306cd7;
@@ -119,7 +123,7 @@ button.file-list-item-remove, button.uploaded-list-item-remove {
 input#file-input::file-selector-button {
     background-color: var(--file-button-bg);
     color: var(--file-button-fg);
-    border: none;
+    border: 1px solid var(--file-button-border);
     font-weight: bold;
     border-radius: 5px;
 }
@@ -164,15 +168,27 @@ div#file-area > div.max-upload-size-warning, div.nojs-warning {
     border-color: var(--warning-border);
 }
 
-button.uploaded-list-item-copy-url {
+button.uploaded-list-item-copy-url, span.uploaded-list-item-failed-indicator {
     font-size: 11px;
     font-weight: bold;
-    padding: 2px 5px;
+    padding: 0;
     margin-right: 2px;
+    border-radius: 5px;
+    width: 65px;
+    text-align: center;
+}
+
+button.uploaded-list-item-copy-url {
+    line-height: 18px;
     background-color: var(--copy-url-button-bg);
     color: var(--copy-url-button-fg);
-    border: none;
-    border-radius: 5px;
+    border: 1px solid var(--copy-url-button-border);
+}
+
+span.uploaded-list-item-failed-indicator {
+    line-height: 20px;
+    color: var(--upload-failed-fg);
+    background-color: var(--upload-failed-bg);
 }
 
 ul#uploaded-list > li {
@@ -190,24 +206,8 @@ ul#uploaded-list > li > a {
     color: var(--upload-url-fg);
 }
 
-ul#uploaded-list > li > a::before {
-    padding: 0 2px 0 0;
-    pointer-events: none;
-}
-
 ul#uploaded-list > li.failed > a {
     pointer-events: none;
-}
-
-ul#uploaded-list > li.failed > a::before {
-    color: var(--upload-failed-fg);
-    background-color: var(--upload-failed-bg);
-    text-decoration: underline var(--upload-failed-bg) 2px;
-    border-radius: 5px;
-
-    font-size: 11px;
-    line-height: 16px;
-    padding: 2px 5px;
 }
 
 ul#uploaded-list > li > progress {

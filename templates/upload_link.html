@@ -13,21 +13,17 @@
         <link rel="stylesheet" href="css/custom/styles.css"/>
 
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>{{ app_name }} | Your Upload</title>
+        <title>{{ app_name }} | {{ t.get("upload_link/title") }}</title>
     </head>
     <body>
         <header id="header">
-            <h1 id="title">Your Upload</h1>
-            <a href="../">Main Page</a>
+            <h1 id="title">{{ t.get("upload_link/title") }}</h1>
+            <a href="../">{{ t.get("main_page") }}</a>
         </header>
         <div class="ui-frame flex-column">
             <a href="{{ upload_url }}" target="_blank" class="upload-link"/>
-                Copy this URL to share your files (upload ID: {{ upload_id }})
+                {{ t.get("upload_link/link") }}
             </a>
-            <hr/>
-            <span class="small-text">
-                Don't lose this link! Your upload will be inaccessible without it.
-            </span>
         </div>
     </body>
 </html>

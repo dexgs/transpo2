@@ -75,7 +75,7 @@ function updateFileList(prevNumFiles) {
         let listItem = fileListItemTemplate.content.cloneNode(true).firstElementChild;
         listItem.dataset.index = index;
         let itemName = listItem.querySelector("span.file-list-item-name");
-        itemName.innerHTML = file.name;
+        itemName.innerHTML = safeString(file.name);
         itemName.title = file.name;
         listItem.querySelector("span.file-list-item-size").innerHTML = sizeString(file.size);
         listItem.querySelector("button.file-list-item-remove")
@@ -97,7 +97,7 @@ function updateFileList(prevNumFiles) {
         fileAreaFooter.hidden = true;
     }
 
-    if (uploadSize > maxUploadSize) {
+    if (uploadSize * 1.05 > maxUploadSize) {
         if (!(fileArea.querySelector("div.max-upload-size-warning"))) {
             // Make sure the max upload size text is correct
             let maxUploadSizeWarning = maxUploadSizeWarningTemplate.content.cloneNode(true).firstElementChild;
@@ -214,6 +214,21 @@ function removeUploadedListEntry(button) {
 
     button.parentElement.remove();
 }
+
+// Sanitize a string before inserting it into the document
+function safeString(str) {
+    if (typeof str == typeof "") {
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    } else {
+        return str;
+    }
+}
+
 
 window.addEventListener("pageshow", () => {
     // Make sure the file input contains the contents of filesToUpload

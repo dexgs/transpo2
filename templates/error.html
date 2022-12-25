@@ -13,14 +13,21 @@
         <link rel="stylesheet" href="{{ path_prefix }}css/custom/styles.css"/>
 
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>{{ app_name }} | Error {{ error_code }}</title>
+        <title>{{ app_name }} | {{ t.get("error/title") }} {{ error_code }}</title>
     </head>
     <body>
         <header id="header">
-            <h1 id="title">Error {{ error_code }}</h1>
+            <h1 id="title">{{ t.get("error/title") }} {{ error_code }}</h1>
         </header>
         <div class="ui-frame flex-column">
-            {{ message }}
+            {% match error_code %}
+                {% when 404 %}
+                    {{ t.get("error/404") }}
+                {% when 400 %}
+                    {{ t.get("error/400") }}
+                {% when _ %}
+                    {{ t.get("error/fallback") }}
+            {% endmatch %}
         </div>
     </body>
 </html>

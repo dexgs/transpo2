@@ -22,6 +22,8 @@ environment variables. The available options are as follows:
  -d / TRANSPO_STORAGE_DIRECTORY            <path> : path to the directory where Transpo will store uploads
  -D / TRANSPO_DATABASE_URL             <path/url> : URL to which database connections will be made
  -m / TRANSPO_MIGRATIONS_DIRECTORY         <path> : path to the directory containing migration directories.
+ -l / TRANSPO_DEFAULT_LANGUAGE           <string> : language code of default language.
+ -T / TRANSPO_TRANSLATIONS_DIRECTORY       <path> : path to the translations directory.
  -n / TRANSPO_APP_NAME                   <string> : name shown in web interface
  -Q /                                             : quiet: do not print configuration on start
  -h /                                             : print this help message and exit
@@ -41,6 +43,8 @@ pub struct TranspoConfig {
     pub storage_dir: PathBuf,
     pub db_url: String,
     pub migrations_dir: PathBuf,
+    pub default_lang: String,
+    pub translations_dir: PathBuf,
     pub app_name: String,
     pub quiet: bool
 }
@@ -71,6 +75,10 @@ impl Default for TranspoConfig {
             db_url: "./transpo_storage/db.sqlite".to_string(),
 
             migrations_dir: PathBuf::from("./"),
+
+            default_lang: "en".to_string(),
+
+            translations_dir: PathBuf::from("./translations"),
 
             app_name: "Transpo".to_string(),
 
@@ -164,6 +172,13 @@ impl TranspoConfig {
                 "-m" | "TRANSPO_MIGRATIONS_DIRECTORY" => {
                     self.migrations_dir = value.parse()
                         .expect("Parsing configured migrations directory");
+                },
+                "-l" | "TRANSPO_DEFAULT_LANGUAGE" => {
+                    self.default_lang = value.to_string();
+                },
+                "-T" | "TRANSPO_TRANSLATIONS_DIRECTORY" => {
+                    self.translations_dir = value.parse()
+                        .expect("Parsing configured translations directory");
                 },
                 "-n" | "TRANSPO_APP_NAME" => {
                     self.app_name = value.to_string();

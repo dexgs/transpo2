@@ -6,6 +6,7 @@ use crate::config::*;
 use crate::db::*;
 use crate::http_errors::*;
 use crate::templates::*;
+use crate::translations::*;
 use crate::quotas::*;
 
 use std::{cmp, fs, str};
@@ -430,13 +431,13 @@ async fn websocket_read_loop(
 }
 
 pub async fn handle_post(
-    mut conn: Conn, config: Arc<TranspoConfig>,
+    mut conn: Conn, config: Arc<TranspoConfig>, translation: Translation,
     db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Conn
 {
     // Get the boundary of the multi-part form
     let boundary = match get_boundary(&conn) {
         Some(boundary) => boundary,
-        None => return error_400(conn, config)
+        None => return error_400(conn, config, translation)
     };
     let boundary = format!("\r\n--{}", boundary);
     if boundary.len() > MAX_FORM_BOUNDARY_LENGTH
@@ -445,7 +446,7 @@ pub async fn handle_post(
         // This is unlikely to happen unless someone is trying to abuse the
         // slowest path in the parser: a long boundary that contains every
         // possible byte value.
-        return error_400(conn, config);
+        return error_400(conn, config, translation);
     }
 
     let (upload_id, upload_id_string, upload_dir) = {
@@ -523,6 +524,7 @@ pub async fn handle_post(
                     app_name: config.app_name.clone(),
                     upload_url: upload_url,
                     upload_id: upload_id_string,
+                    t: translation
                 };
                 conn.render(template).halt()
             } else {
@@ -549,7 +551,7 @@ pub async fn handle_post(
             }
         }).await;
 
-        error_400(conn, config)
+        error_400(conn, config, translation)
     }
 }
 

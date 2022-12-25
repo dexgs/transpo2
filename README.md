@@ -66,6 +66,12 @@ description in a sub-item
   - The directory containing database migration directories (`migrations/` and
     `pg_migrations/`). Defaults to the current directory.
 
+- `-l` / `TRANSPO_DEFAULT_LANGUAGE` `<string>`
+  - Language code of default language
+
+- `-T` / `TRANSPO_TRANSLATIONS_DIRECTORY` `<path>`
+  - Path to the translations directory
+
 - `-n` / `TRANSPO_APP_NAME` `<string>`
   - Name shown throughout the web interface.
 

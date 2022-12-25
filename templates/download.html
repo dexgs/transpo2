@@ -13,37 +13,26 @@
         <link rel="stylesheet" href="css/custom/styles.css"/>
 
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>{{ app_name }} | Download</title>
+        <title>{{ app_name }} | {{ t.get("download/title") }}</title>
     </head>
     <body>
         <noscript>
             <iframe width="0" height="0" src="clear-data" style="display: none;"></iframe>
         </noscript>
         <header id="header">
-            <h1 id="title">Download</h1>
-            <a href="../">Main Page</a>
+            <h1 id="title">{{ t.get("download/title") }}</h1>
+            <a href="../">{{ t.get("main-page") }}</a>
         </header>
         <div class="ui-frame flex-column">
             <form id="download-form" class="flex-column" action="../{{ file_id }}/dl" method="get" enctype="application/x-www-form-urlencoded" autocomplete="off">
                 <noscript class="flex-column">
                     <div class="nojs-warning flex-row">
                         <span class="flex-no-expand small-text">
-                            <b>JavaScript is not available in your browser.</b>
-                            This means decryption will be handled on the server
-                            instead of in your browser. The key to decrypt the
-                            download will only be stored by the server for the
-                            duration of the decryption process, but be aware
-                            that this is <b>less secure</b> than decrypting in
-                            your browser which requires JavaScript.
-                            <br/><br/>
-                            If you wish to proceed anyway, copy the decryption
-                            key from the address bar into the "Decryption key"
-                            field. The key is the segment of the URL which comes
-                            <b>AFTER</b> the <code>#</code> symbol.
+                            {{ t.get("download/nojs-warning") }}
                         </span>
                     </div>
                     <div class="flex-row">
-                        <label for="key-input">Decryption key: </label>
+                        <label for="key-input">{{ t.get("download/decryption-key") }} </label>
                         <input id="key-input" name="key" type="text"/>
                     </div>
                     <hr/>
@@ -51,19 +40,18 @@
 
                 {% if has_password %}
                 <div class="flex-row">
-                    <label for="password-input">Password: </label>
+                    <label for="password-input">{{ t.get("download/password") }} </label>
                     <input id="password-input" name="password" type="text"/>
                 </div>
                 <div class="flex-row">
-                    <span class="flex-no-expand small-text">
-                        Leave the password empty if the download is not password
-                        protected.
-                    </span>
+                    <center class="flex-no-expand small-text">
+                        {{ t.get("download/empty-password") }}
+                    </center>
                 </div>
                 <hr/>
                 {% endif %}
 
-                <button id="download-button">Download</button>
+                <button id="download-button">{{ t.get("download/download") }}</button>
             </form>
         </div>
 

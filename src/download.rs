@@ -5,6 +5,7 @@ use crate::constants::*;
 use crate::config::*;
 use crate::files::*;
 use crate::http_errors::*;
+use crate::translations::*;
 
 use std::io::{Read, Result};
 use std::sync::{Arc, Mutex};
@@ -144,10 +145,10 @@ fn check_password(password: &Option<Vec<u8>>, upload: &Upload) -> bool {
 
 pub async fn info(
     conn: Conn, id_string: String, config: Arc<TranspoConfig>,
-    accessors: Accessors, db_backend: DbBackend) -> Conn
+    accessors: Accessors, translation: Translation, db_backend: DbBackend) -> Conn
 {
     if id_string.len() != base64_encode_length(ID_LENGTH) {
-        return error_404(conn, config);
+        return error_404(conn, config, translation);
     }
 
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
@@ -183,7 +184,7 @@ pub async fn info(
                 .halt()
         },
         None => {
-            error_400(conn, config)
+            error_400(conn, config, translation)
         }
     }
 }
@@ -191,10 +192,10 @@ pub async fn info(
 
 pub async fn handle(
     conn: Conn, id_string: String, config: Arc<TranspoConfig>,
-    accessors: Accessors, db_backend: DbBackend) -> Conn
+    accessors: Accessors, translation: Translation, db_backend: DbBackend) -> Conn
 {
     if id_string.len() != base64_encode_length(ID_LENGTH) {
-        return error_404(conn, config);
+        return error_404(conn, config, translation);
     }
 
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
@@ -266,7 +267,7 @@ pub async fn handle(
                          format!("attachment; filename=\"{}\"", file_name))
             .halt()
     } else {
-        error_400(conn, config)
+        error_400(conn, config, translation)
     }
 }
 

@@ -1,23 +1,31 @@
 use trillium_askama::Template;
 use crate::config::*;
+use crate::translations::*;
 
 use std::cmp;
-use std::sync::Arc;
 
 
 #[derive(Template, Clone)]
-#[template(path = "index.html")]
-pub struct IndexTemplate {
-    app_name: Arc<String>,
+#[template(path = "index.html", escape = "none")]
+pub struct IndexTemplate<'a> {
+    app_name: &'a String,
+    selected_lang: &'a str,
+    lang_names: &'a [(String, String)],
     max_days: usize,
     max_hours: usize,
     max_minutes: usize,
-    max_upload_size: usize
+    max_upload_size: usize,
+    t: Translation
 }
 
-impl From<&TranspoConfig> for IndexTemplate {
-    fn from(config: &TranspoConfig) -> Self {
-        let app_name = Arc::new(config.app_name.clone());
+impl<'a> IndexTemplate<'a> {
+    pub fn new(
+        config: &'a TranspoConfig,
+        lang_names: &'a [(String, String)],
+        selected_lang: &'a str,
+        translation: Translation) -> Self
+    {
+        let app_name = &config.app_name;
 
         let max_days = cmp::max(config.max_upload_age_minutes / (24 * 60) - 1, 0);
 
@@ -34,50 +42,57 @@ impl From<&TranspoConfig> for IndexTemplate {
         };
 
         Self {
-            app_name: app_name,
-            max_days: max_days,
-            max_hours: max_hours,
-            max_minutes: max_minutes,
-            max_upload_size: config.max_upload_size_bytes
+            app_name,
+            selected_lang,
+            lang_names,
+            max_days,
+            max_hours,
+            max_minutes,
+            max_upload_size: config.max_upload_size_bytes,
+            t: translation
         }
     }
 }
 
 #[derive(Template, Clone)]
-#[template(path = "upload_link.html")]
+#[template(path = "upload_link.html", escape = "none")]
 pub struct UploadLinkTemplate {
     pub app_name: String,
     pub upload_url: String,
     pub upload_id: String,
+    pub t: Translation
 }
 
 #[derive(Template, Clone)]
-#[template(path = "about.html")]
-pub struct AboutTemplate {
-    pub app_name: Arc<String>
+#[template(path = "about.html", escape = "none")]
+pub struct AboutTemplate<'a> {
+    pub app_name: &'a String,
+    pub t: Translation
 }
 
-impl From<&TranspoConfig> for AboutTemplate {
-    fn from(config: &TranspoConfig) -> Self {
+impl<'a> AboutTemplate<'a> {
+    pub fn new(config: &'a TranspoConfig, translation: Translation) -> Self {
         Self {
-            app_name: Arc::new(config.app_name.clone())
+            app_name: &config.app_name,
+            t: translation
         }
     }
 }
 
 #[derive(Template, Clone)]
-#[template(path = "download.html")]
+#[template(path = "download.html", escape = "none")]
 pub struct DownloadTemplate {
     pub file_id: String,
     pub app_name: String,
-    pub has_password: bool
+    pub has_password: bool,
+    pub t: Translation
 }
 
 #[derive(Template, Clone)]
-#[template(path = "error.html")]
-pub struct ErrorTemplate {
+#[template(path = "error.html", escape = "none")]
+pub struct ErrorTemplate<'a> {
     pub error_code: usize,
-    pub message: String,
-    pub app_name: String,
-    pub path_prefix: String
+    pub app_name: &'a String,
+    pub path_prefix: String,
+    pub t: Translation
 }

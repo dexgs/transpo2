@@ -64,7 +64,13 @@ h1#title {
     display: inline-block;
 }
 
-form#language-form {
+form#language-select-form {
+    flex-grow: 1;
+    display: flex;
+    justify-content: end;
+    align-items: center;
+    align-self: center;
+    gap: 5px;
     float: right;
 }
 
@@ -272,14 +278,6 @@ ul#uploaded-list > li > a > span.uploaded-list-item-file-name {
 
 ul#uploaded-list > li.failed > button.uploaded-list-item-copy-url {
     display: none;
-}
-
-ul#uploaded-list > li.failed > a::before {
-    display: block;
-    margin-right: 2px;
-    height: min-content;
-
-    text-align: center;
 }
 
 ul#uploaded-list > li > progress {

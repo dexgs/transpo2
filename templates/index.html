@@ -19,10 +19,6 @@
 body {
     width: min(800px, 100% - 10px);
 }
-
-ul#uploaded-list > li.failed > a::before {
-    content: "Failed";
-}
 </style>
 
 <noscript>
@@ -43,42 +39,38 @@ fieldset.togglable-field div {
 </noscript>
 
     </head>
+
     <body>
-        <noscript>
-            <iframe width="0" height="0" src="clear-data" style="display: none;"></iframe>
-        </noscript>
         <header id="header">
             <h1 id="title">{{ app_name }}</h1>
-            <a href="about">About<span class="hidden"> {{ app_name }}</span></a>
+            <a href="about">{{ t.get("index/about") }}<span class="hidden"> {{ app_name }}</span></a>
+
+            {% if lang_names.len() > 1 %}
+            <form id="language-select-form">
+                <label for="language-select">{{ t.get("index/language-select") }}</label>
+                <select name="lang" id="language-select">
+                {% for (lang, name) in lang_names %}
+                    <option value="{{lang}}" {% if lang == selected_lang %}selected{% endif %}>{{name}}</option>
+                {% endfor %}
+                </select>
+
+                <noscript>
+                    <input type="submit" value="Select"/>
+                </noscript>
+            </form>
+            {% endif %}
         </header>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">
                 <noscript>
                     <div class="nojs-warning flex-row">
                         <span class="flex-no-expand small-text">
-                            <b>JavaScript is not available in your browser.</b>
-                            This means encryption will be handled by the server
-                            instead of in your browser. The key required to
-                            decrypt your upload will only be stored on the
-                            server during the encryption process, but be aware
-                            that this is <b>less secure</b> than encrypting your
-                            upload inside your browser which requires
-                            JavaScript.
+                            {{ t.get("index/nojs-warning") }}
                         </span>
                     </div>
 
                     <div class="hidden" aria-hidden="true" hidden>
-                        <hr/>
-                        <b>IGNORE THIS →</b>
                         <input name="server-side-processing" id="server-side-processing-input" type="checkbox" checked/>
-                        <i>
-                            This checkbox indicates to the server whether or not
-                            the it will be expected to encrypt + compress
-                            uploads. If you are seeing this in your browser
-                            right now, please <b>don't</b> change the value of
-                            this checkbox
-                        </i>
-                        <hr/>
                     </div>
                 </noscript>
 
@@ -86,12 +78,14 @@ fieldset.togglable-field div {
                     <noscript>
                         <span>
                             <input name="enable-multiple-files" id="enable-multiple-files-input" type="checkbox"/>
-                            <label for="enable-multiple-files-input">Enable uploading multiple files</label>
+                            <label for="enable-multiple-files-input">
+                                {{ t.get("index/enable-multiple-files") }}
+                            </label>
                         </span>
                     </noscript>
 
                     <div class="flex-row">
-                        <h2>Select Files</h2>
+                        <h2>{{ t.get("index/select-files") }}</h2>
                         <input name="files" id="file-input" type="file" multiple/>
                     </div>
 
@@ -101,11 +95,11 @@ fieldset.togglable-field div {
 
                     <div id="file-area-footer" class="flex-row" style="visibility: hidden;" hidden>
                         <span>
-                            Upload size:
+                            {{ t.get("index/upload-size") }}
                             <output id="upload-size-output"></output>
                         </span>
                         <button type="button" id="clear-files-button">
-                            Remove all <span class="hidden">files</span>
+                            {{ t.get("index/remove-all-files") }}
                         </button>
                     </div>
                 </div>
@@ -114,18 +108,18 @@ fieldset.togglable-field div {
 
                 <fieldset id="time-limit-fields">
                     <legend>
-                        Expire after:
+                        {{ t.get("index/expire-after") }}
                     </legend>
                     <div>
-                        <label for="days-input">Days:</label>
+                        <label for="days-input">{{ t.get("index/days") }}</label>
                         <input name="days" id="days-input" type="number" size="5" value="0" min="0" max="{{ max_days }}"/>
                     </div>
                     <div>
-                        <label for="hours-input">Hours:</label>
+                        <label for="hours-input">{{ t.get("index/hours") }}</label>
                         <input name="hours" id="hours-input" type="number" size="4" value="0" min="0" max="{{ max_hours }}"/>
                     </div>
                     <div>
-                        <label for="minutes-input">Minutes:</label>
+                        <label for="minutes-input">{{ t.get("index/minutes") }}</label>
                         <input name="minutes" id="minutes-input" type="number" size="4" value="30" min="0" max="{{ max_minutes }}"/>
                     </div>
                 </fieldset>
@@ -133,39 +127,45 @@ fieldset.togglable-field div {
                 <hr/>
 
                 <fieldset class="togglable-field">
-                    <legend class="hidden">Download limit settings</legend>
+                    <legend class="hidden">{{ t.get("index/download-limit-settings") }}</legend>
                     <input name="enable-max-downloads" id="enable-max-downloads-input" type="checkbox"/>
                     <label for="enable-max-downloads-input">
-                        Enable download limit
+                        {{ t.get("index/enable-download-limit") }}
                     </label>
                     <div>
-                        <label for="max-downloads">Expire after:</label>
+                        <label for="max-downloads">
+                            {{ t.get("index/expire-after") }}
+                        </label>
                         <input name="max-downloads" id="max-downloads-input" type="number" size="5" value="1" min="1"/>
-                        <span>downloads</span>
+                        <span>{{ t.get("index/downloads") }}</span>
                     </div>
                 </fieldset>
 
                 <hr/>
 
                 <fieldset class="togglable-field">
-                    <legend class="hidden">Password protection settings</legend>
+                    <legend class="hidden">
+                        {{ t.get("index/password-protection-settings") }}
+                    </legend>
                     <input name="enable-password" id="enable-password-input" type="checkbox">
                     <label for="enable-password-input">
-                        Enable password protection
+                        {{ t.get("index/enable-password-protection") }}
                     </label>
                     <div>
-                        <label for="password-input">Password:</label>
+                        <label for="password-input">
+                            {{ t.get("index/password") }}
+                        </label>
                         <input name="password" id="password-input" type="text"/>
                     </div>
                 </fieldset>
 
                 <hr/>
 
-                <button id="upload-button">Upload</button>
+                <button id="upload-button">{{ t.get("index/upload") }}</button>
             </form>
 
             <div id="uploaded-area">
-                <h2>Your Uploads</h2>
+                <h2>{{ t.get("index/your-uploads") }}</h2>
                 <div id="uploaded-list-container">
                     <ul id="uploaded-list"></ul>
                 </div>
@@ -173,42 +173,45 @@ fieldset.togglable-field div {
         </div>
 
         <footer>
-            <a href="https://github.com/dexgs/transpo2">Source code</a> (AGPLv3)
-            © 2022 Transpo Contributors.
+            <a href="https://github.com/dexgs/transpo2">{{ t.get("source-code") }}</a> (AGPLv3)
+            {{ t.get("copyright") }}
         </footer>
 
 
         <template id="file-list-item-template" style="display: none;">
             <li data-index="">
-                <span class="hidden">File name:</span>
+                <span class="hidden">{{ t.get("index/file-name") }}</span>
                 <span class="file-list-item-name flex-no-expand"></span>
-                <span class="hidden">, File size:</span>
+                <span class="hidden">, {{ t.get("index/file-size") }}</span>
                 <span class="file-list-item-size"></span>
                 <button type="button" class="file-list-item-remove">
-                    <span class="hidden">Remove file </span><span aria-hidden="true">×</span>
+                    <span class="hidden">{{ t.get("index/remove-file") }} </span><span aria-hidden="true">×</span>
                 </button>
             </li>
         </template>
 
         <template id="max-upload-size-warning-template" style="display: none;">
             <div class="max-upload-size-warning">
-                <b>&#x26A0;&#xFE0E; Warning:</b> the maximum upload size is <output></output> !
+                {{ t.get("index/max-upload-size-warning") }}
             </div>
         </template>
 
         <template id="uploaded-list-item-template" style="display: none;">
             <li>
+                <span class="uploaded-list-item-failed-indicator" hidden>
+                    {{ t.get("index/failed") }}
+                </span>
                 <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
-                    Copy URL
+                    {{ t.get("index/copy-url") }}
                 </button>
                 <a class="flex-no-expand" target="_blank">
                     <span class="uploaded-list-item-file-name"></span>
                     <span class="uploaded-list-item-other-files">
-                        + <output></output> more
+                        {{ t.get("index/more-files") }}
                     </span>
                 </a>
                 <button class="uploaded-list-item-remove" onclick="removeUploadedListEntry(this)">
-                    <span class="hidden">Remove </span><span aria-hidden="true">×</span>
+                    <span class="hidden">{{ t.get("index/remove") }} </span><span aria-hidden="true">×</span>
                 </button>
                 <progress value="0" max="100"></progress>
             </li>
@@ -220,6 +223,7 @@ fieldset.togglable-field div {
         <script src="js/size_string.js"></script>
         <script src="js/files.js"></script>
         <script src="js/upload.js"></script>
+        <script src="js/translations.js"></script>
 
         <script>
             maxUploadSize = {{ max_upload_size }};
