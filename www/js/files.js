@@ -168,7 +168,7 @@ function addUploadedListItem(files, uploadNum) {
 
     link.title = allFileNames;
 
-    fileName.innerHTML = files[0].name;
+    fileName.innerHTML = safeString(files[0].name);
 
     let numOtherFiles = files.length - 1;
     if (numOtherFiles > 0) {
