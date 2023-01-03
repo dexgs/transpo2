@@ -14,11 +14,16 @@
 
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <title>{{ app_name }} | {{ t.get("download/title") }}</title>
+
+<noscript>
+<style>
+center.flex-no-expand {
+    width: 470px;
+}
+</style>
+</noscript>
     </head>
     <body>
-        <noscript>
-            <iframe width="0" height="0" src="clear-data" style="display: none;"></iframe>
-        </noscript>
         <header id="header">
             <h1 id="title">{{ t.get("download/title") }}</h1>
             <a href="../">{{ t.get("main-page") }}</a>

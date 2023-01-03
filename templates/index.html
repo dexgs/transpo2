@@ -35,6 +35,9 @@ fieldset.togglable-field div {
     visibility: visible;
     opacity: 100%;
 }
+input#file-input {
+    width: 300px;
+}
 </style>
 </noscript>
 
@@ -43,7 +46,7 @@ fieldset.togglable-field div {
     <body>
         <header id="header">
             <h1 id="title">{{ app_name }}</h1>
-            <a href="about">{{ t.get("index/about") }}<span class="hidden"> {{ app_name }}</span></a>
+            <a href="about">{{ t.get("index/about") }}</a>
 
             {% if lang_names.len() > 1 %}
             <form id="language-select-form">
@@ -55,7 +58,7 @@ fieldset.togglable-field div {
                 </select>
 
                 <noscript>
-                    <input type="submit" value="Select"/>
+                    <input type="submit"/>
                 </noscript>
             </form>
             {% endif %}
@@ -104,7 +107,7 @@ fieldset.togglable-field div {
                     </div>
                 </div>
 
-                <h2>Upload Settings</h2>
+                <h2>{{ t.get("index/upload-settings") }}</h2>
 
                 <fieldset id="time-limit-fields">
                     <legend>
@@ -199,7 +202,9 @@ fieldset.togglable-field div {
         <template id="uploaded-list-item-template" style="display: none;">
             <li>
                 <span class="uploaded-list-item-failed-indicator" hidden>
+                    <span class="hidden">(</span>
                     {{ t.get("index/failed") }}
+                    <span class="hidden">)</span>
                 </span>
                 <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
                     {{ t.get("index/copy-url") }}
