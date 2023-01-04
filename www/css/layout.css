@@ -235,7 +235,7 @@ button#upload-button, button#download-button {
 div#uploaded-area {
     display: flex;
     flex-direction: column;
-    width: 230px;
+    min-width: 285px;
     min-height: 300px;
     padding: 5px;
     flex-grow: 1;
