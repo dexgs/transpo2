@@ -349,7 +349,10 @@ pub async fn handle_websocket(
             let upload_result = websocket_read_loop(
                 &mut conn, &upload_path, config.clone(), quotas_data).await;
 
-            if upload_result.is_ok() {
+            let write_is_completed_success =
+                write_is_completed(upload_id, db_backend, config.clone()).await.is_some();
+
+            if upload_result.is_ok() && write_is_completed_success {
                 // Don't handle error, since client may have already closed its
                 // end in which case closing here will return an error, but
                 // this error should *not* cause the upload to fail.
@@ -479,7 +482,7 @@ pub async fn handle_post(
     // read by `parse_upload_form`.
     if form.has_time_limit() {
         db_write_success = write_to_db(
-            form, upload_id.clone(), file_name, mime_type,
+            form, upload_id, file_name, mime_type,
             db_backend, config.clone()).await.is_some();
         file_name = None;
         mime_type = None;
@@ -501,11 +504,18 @@ pub async fn handle_post(
     // upload body succeeded, try to write one now.
     if parse_success && !db_write_success {
         db_write_success = write_to_db(
-            form, upload_id.clone(), file_name, mime_type,
+            form, upload_id, file_name, mime_type,
             db_backend, config.clone()).await.is_some();
     }
 
-    let upload_success = parse_success && db_write_success;
+    // write that the upload is completed into the db
+    let write_is_completed_success =
+        write_is_completed(upload_id, db_backend, config.clone()).await.is_some();
+
+    let upload_success =
+        parse_success
+        && db_write_success
+        && write_is_completed_success;
 
     // Respond to the client
     if upload_success {
@@ -965,18 +975,30 @@ async fn write_to_db(
         + Duration::minutes(time_limit_minutes as i64);
 
     let upload = Upload {
-        id: id.clone(),
+        id: id,
         file_name: file_name,
         mime_type: mime_type,
         password_hash: password_hash,
         remaining_downloads: remaining_downloads,
         num_accessors: 0,
-        expire_after: expire_after
+        expire_after: expire_after,
+        is_completed: false
     };
 
     unblock(move || {
         let db_connection = establish_connection(db_backend, &config.db_url);
         let num_modified_rows = upload.insert(&db_connection)?;
+
+        Some(num_modified_rows)
+    }).await
+}
+
+async fn write_is_completed(
+    id: i64, db_backend: DbBackend, config: Arc<TranspoConfig>) -> Option<usize>
+{
+    unblock(move || {
+        let db_connection = establish_connection(db_backend, &config.db_url);
+        let num_modified_rows = Upload::set_is_completed(id, true, &db_connection)?;
 
         Some(num_modified_rows)
     }).await

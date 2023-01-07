@@ -4,6 +4,25 @@ use chrono::{NaiveDateTime, Local};
 use std::path::Path;
 
 
+macro_rules! conn {
+    ($dbc:expr) => {
+        {
+            let dbc = $dbc;
+
+            match dbc {
+                #[cfg(feature = "mysql")]
+                DbConnection::Mysql(c) => c,
+
+                #[cfg(feature = "postgres")]
+                DbConnection::Pg(c) => c,
+
+                #[cfg(feature = "sqlite")]
+                DbConnection::Sqlite(c) => c,
+            }
+        }
+    }
+}
+
 pub enum DbConnection {
     #[cfg(feature = "mysql")]
     Mysql(MysqlConnection),
@@ -34,7 +53,8 @@ pub struct Upload {
     pub password_hash: Option<Vec<u8>>,
     pub remaining_downloads: Option<i32>,
     pub num_accessors: i32,
-    pub expire_after: NaiveDateTime
+    pub expire_after: NaiveDateTime,
+    pub is_completed: bool
 }
 
 table! {
@@ -46,6 +66,7 @@ table! {
         remaining_downloads -> Nullable<Integer>,
         num_accessors -> Integer,
         expire_after -> Timestamp,
+        is_completed -> Bool,
     }
 }
 
@@ -55,17 +76,8 @@ impl Upload {
     pub fn insert(&self, db_connection: &DbConnection) -> Option<usize> {
         let insert = diesel::insert_into(uploads::table)
             .values(self);
-        
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => insert.execute(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => insert.execute(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => insert.execute(c),
-        }.ok()
+       
+        insert.execute(conn!(db_connection)).ok()
     }
 
     // Return whether or not an Upload has expired, either based on time or
@@ -96,16 +108,7 @@ impl Upload {
             .filter(uploads::id.eq(id))
             .limit(1);
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => select.load::<Upload>(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => select.load::<Upload>(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => select.load::<Upload>(c)
-        }.ok()?.pop()
+        select.load::<Upload>(conn!(db_connection)).ok()?.pop()
     }
 
     // Decrement the number of remaining downloads on the row with the given ID. Return
@@ -117,16 +120,17 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::remaining_downloads.eq(uploads::remaining_downloads - 1));
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => update.execute(c),
+        update.execute(conn!(db_connection)).ok()
+    }
 
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => update.execute(c),
+    pub fn set_is_completed(id: i64, is_completed: bool, db_connection: &DbConnection) -> Option<usize> {
+        let target = uploads::table
+            .filter(uploads::id.eq(id));
 
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => update.execute(c)
-        }.ok()
+        let update = diesel::update(target)
+            .set(uploads::is_completed.eq(is_completed));
+
+        update.execute(conn!(db_connection)).ok()
     }
 
     // Delete the row with the given ID
@@ -135,16 +139,7 @@ impl Upload {
             .filter(uploads::id.eq(id));
         let delete = diesel::delete(target);
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => delete.execute(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => delete.execute(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => delete.execute(c)
-        }.ok()
+        delete.execute(conn!(db_connection)).ok()
     }
 
     // Return a list of IDs for expired (time-based) uploads
@@ -154,31 +149,13 @@ impl Upload {
             .filter(uploads::expire_after.lt(now))
             .select(uploads::id);
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => select.load::<i64>(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => select.load::<i64>(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => select.load::<i64>(c)
-        }.ok()
+        select.load::<i64>(conn!(db_connection)).ok()
     }
 
     pub fn select_all(db_connection: &DbConnection) -> Option<Vec<i64>> {
         let select = uploads::table.select(uploads::id);
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => select.load::<i64>(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => select.load::<i64>(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => select.load::<i64>(c)
-        }.ok()
+        select.load::<i64>(conn!(db_connection)).ok()
     }
 
     // Increment the accessor count
@@ -188,16 +165,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::num_accessors.eq(uploads::num_accessors + 1));
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => update.execute(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => update.execute(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => update.execute(c)
-        }.ok()
+        update.execute(conn!(db_connection)).ok()
     }
 
     // Decrement the accessor count
@@ -207,18 +175,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::dsl::num_accessors.eq(uploads::dsl::num_accessors - 1));
 
-        let result = match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => update.execute(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => update.execute(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => update.execute(c)
-        };
-
-        result.ok()
+        update.execute(conn!(db_connection)).ok()
     }
 
     pub fn num_accessors(db_connection: &DbConnection, id: i64) -> Option<i32> {
@@ -226,16 +183,7 @@ impl Upload {
             .filter(uploads::dsl::id.eq(id))
             .select(uploads::dsl::num_accessors);
 
-        match db_connection {
-            #[cfg(feature = "mysql")]
-            DbConnection::Mysql(c) => select.load::<i32>(c),
-
-            #[cfg(feature = "postgres")]
-            DbConnection::Pg(c) => select.load::<i32>(c),
-
-            #[cfg(feature = "sqlite")]
-            DbConnection::Sqlite(c) => select.load::<i32>(c)
-        }.ok()?.pop()
+        select.load::<i32>(conn!(db_connection)).ok()?.pop()
     }
 }
 

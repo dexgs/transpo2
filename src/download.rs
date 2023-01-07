@@ -161,7 +161,11 @@ pub async fn info(
         let db_connection = establish_connection(db_backend, &config_.db_url);
         let upload = get_upload(id, &config_, &accessors, db_backend, &db_connection)?;
         let upload_path = config_.storage_dir.join(&id_string).join("upload");
-        let ciphertext_size = get_file_size(&upload_path).ok()?;
+        let ciphertext_size = if upload.is_completed {
+            get_file_size(&upload_path).ok()?
+        } else {
+            0
+        };
 
         if !check_password(&password, &upload) {
             None
@@ -204,7 +208,7 @@ pub async fn handle(
     let crypto_key = query.crypto_key;
     let password = query.password;
 
-    let response: Option<(Body, String, String, u64)> = {
+    let response = {
         let config = config.clone();
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
@@ -260,9 +264,9 @@ pub async fn handle(
         conn
             .with_status(200)
             .with_body(body)
-            .with_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size)) // custom header!
             .with_header("Cache-Control", "no-cache")
             .with_header("Content-Type", mime_type)
+            .with_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size))
             .with_header("Content-Disposition",
                          format!("attachment; filename=\"{}\"", file_name))
             .halt()

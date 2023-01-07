@@ -179,7 +179,9 @@ async function decryptedResponse(url) {
     const headers = new Headers();
     headers.append("Content-Type", mime);
     headers.append("Content-Disposition", "attachment; filename=\"" + name + "\"");
-    headers.append("Content-Length", String(info.size));
+    if (info.size > 0) {
+        headers.append("Content-Length", String(info.size));
+    }
 
     const init = {
         "status": 200,
