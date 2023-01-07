@@ -5,19 +5,19 @@ use std::path::Path;
 
 
 macro_rules! conn {
-    ($dbc:expr) => {
+    ($dbc:expr, $e:expr) => {
         {
             let dbc = $dbc;
 
             match dbc {
                 #[cfg(feature = "mysql")]
-                DbConnection::Mysql(c) => c,
+                DbConnection::Mysql(c) => $e(c),
 
                 #[cfg(feature = "postgres")]
-                DbConnection::Pg(c) => c,
+                DbConnection::Pg(c) => $e(c),
 
                 #[cfg(feature = "sqlite")]
-                DbConnection::Sqlite(c) => c,
+                DbConnection::Sqlite(c) => $e(c),
             }
         }
     }
@@ -77,7 +77,7 @@ impl Upload {
         let insert = diesel::insert_into(uploads::table)
             .values(self);
        
-        insert.execute(conn!(db_connection)).ok()
+        conn!(db_connection, |c| insert.execute(c)).ok()
     }
 
     // Return whether or not an Upload has expired, either based on time or
@@ -108,7 +108,7 @@ impl Upload {
             .filter(uploads::id.eq(id))
             .limit(1);
 
-        select.load::<Upload>(conn!(db_connection)).ok()?.pop()
+        conn!(db_connection, |c| select.load::<Upload>(c)).ok()?.pop()
     }
 
     // Decrement the number of remaining downloads on the row with the given ID. Return
@@ -120,7 +120,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::remaining_downloads.eq(uploads::remaining_downloads - 1));
 
-        update.execute(conn!(db_connection)).ok()
+        conn!(db_connection, |c| update.execute(c)).ok()
     }
 
     pub fn set_is_completed(id: i64, is_completed: bool, db_connection: &DbConnection) -> Option<usize> {
@@ -130,7 +130,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::is_completed.eq(is_completed));
 
-        update.execute(conn!(db_connection)).ok()
+        conn!(db_connection, |c| update.execute(c)).ok()
     }
 
     // Delete the row with the given ID
@@ -139,7 +139,7 @@ impl Upload {
             .filter(uploads::id.eq(id));
         let delete = diesel::delete(target);
 
-        delete.execute(conn!(db_connection)).ok()
+        conn!(db_connection, |c| delete.execute(c)).ok()
     }
 
     // Return a list of IDs for expired (time-based) uploads
@@ -149,13 +149,13 @@ impl Upload {
             .filter(uploads::expire_after.lt(now))
             .select(uploads::id);
 
-        select.load::<i64>(conn!(db_connection)).ok()
+        conn!(db_connection, |c| select.load::<i64>(c)).ok()
     }
 
     pub fn select_all(db_connection: &DbConnection) -> Option<Vec<i64>> {
         let select = uploads::table.select(uploads::id);
 
-        select.load::<i64>(conn!(db_connection)).ok()
+        conn!(db_connection, |c| select.load::<i64>(c)).ok()
     }
 
     // Increment the accessor count
@@ -165,7 +165,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::num_accessors.eq(uploads::num_accessors + 1));
 
-        update.execute(conn!(db_connection)).ok()
+        conn!(db_connection, |c| update.execute(c)).ok()
     }
 
     // Decrement the accessor count
@@ -175,7 +175,7 @@ impl Upload {
         let update = diesel::update(target)
             .set(uploads::dsl::num_accessors.eq(uploads::dsl::num_accessors - 1));
 
-        update.execute(conn!(db_connection)).ok()
+        conn!(db_connection, |c| update.execute(c)).ok()
     }
 
     pub fn num_accessors(db_connection: &DbConnection, id: i64) -> Option<i32> {
@@ -183,7 +183,7 @@ impl Upload {
             .filter(uploads::dsl::id.eq(id))
             .select(uploads::dsl::num_accessors);
 
-        select.load::<i32>(conn!(db_connection)).ok()?.pop()
+        conn!(db_connection, |c| select.load::<i32>(c)).ok()?.pop()
     }
 }
 
