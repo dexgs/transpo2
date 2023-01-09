@@ -9,7 +9,7 @@ self.addEventListener("activate", e => {
 });
 
 self.addEventListener("install", e => {
-    e.waitUntil(self.skipWaiting());
+    self.skipWaiting();
 });
 
 self.addEventListener("message", e => {
