@@ -139,10 +139,9 @@ async function decryptedStream(url) {
                 await decryptBufferAndEnqueue(buffer, controller, key, state);
             }
         }, {
-            // backpressure
-            size(chunk) {
-                return 0;
-            }
+            highWaterMark: 1
+        }, {
+            highWaterMark: 1
         }));
     }
 
