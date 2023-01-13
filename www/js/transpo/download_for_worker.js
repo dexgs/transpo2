@@ -37,6 +37,7 @@ function getUploadIDFromURL(url) {
 // - `segment` buffer into which ciphertext is written
 // - `segmentWriteStart` index into segment where next read should be inserted
 // - `count` number of decryptions so far
+// Returns whether or not the full download has been decrypted
 async function decryptBufferAndEnqueue(buffer, controller, key, state) {
     const EMPTY = new Uint8Array(0);
 
@@ -66,10 +67,10 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
                 } else {
                     controller.terminate();
                 }
-                return;
+                return true;
             } else if (state.segmentSize > maxCiphertextSegmentSize) {
                 controller.error(new Error("Invalid segment size"));
-                return;
+                return false;
             }
 
             if (state.segmentWriteStart >= segmentSize + 2) {
@@ -98,6 +99,8 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
     if (chunksEnqueued == 0) {
         controller.enqueue(EMPTY);
     }
+
+    return false;
 }
 
 async function decryptedStream(url) {
@@ -125,16 +128,26 @@ async function decryptedStream(url) {
             async pull(controller) {
                 const { done, value } = await reader.read();
                 if (done) {
-                    controller.close();
+                    controller.error(new Error("Download failed"));
                 } else {
-                    await decryptBufferAndEnqueue(value, controller, key, state);
+                    if (await decryptBufferAndEnqueue(value, controller, key, state)) {
+                        controller.close();
+                    }
                 }
             }
         });
     } else {
+        let finished = false;
+
         stream = r.body.pipeThrough(new TransformStream({
             async transform(buffer, controller) {
-                await decryptBufferAndEnqueue(buffer, controller, key, state);
+                finished = await decryptBufferAndEnqueue(buffer, controller, key, state);
+            },
+
+            async flush(controller) {
+                if (!finished) {
+                    controller.error(new Error("Download failed"));
+                }
             }
         }, {
             highWaterMark: 1
