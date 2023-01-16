@@ -79,6 +79,7 @@ div.ui-frame {
     width: -moz-available;
     width: available;
     padding: 10px;
+    margin-bottom: 10px;
 }
 
 .flex-column {
@@ -301,7 +302,7 @@ ul#uploaded-list > li.completed > progress {
 
 footer {
     z-index: -1;
-    position: fixed;
+    position: static;
     bottom: 10px;
     left: 0;
     width: 100%;
@@ -317,4 +318,13 @@ footer {
     top: 18px;
     margin-top: -20px;
     position: relative;
+}
+
+@media (max-width: 400px) {
+    form#language-select-form {
+        position: absolute;
+        top: 2px;
+        right: 5px;
+        font-size: 9pt;
+    }
 }
