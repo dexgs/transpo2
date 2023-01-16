@@ -33,6 +33,16 @@ function getUploadIDFromURL(url) {
     return uploadID;
 }
 
+function generateFileName(uploadID, mime) {
+    let name = appName.concat("_", uploadID);
+
+    if (mime == "application/zip") {
+        name = name.concat(".zip");
+    }
+
+    return name;
+}
+
 // `state` is an object with the following fields:
 // - `segment` buffer into which ciphertext is written
 // - `segmentWriteStart` index into segment where next read should be inserted
