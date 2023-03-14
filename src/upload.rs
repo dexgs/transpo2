@@ -308,6 +308,7 @@ impl Writer {
 }
 
 fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
+    // Note: we check the filesystem to avoid duplicate upload IDs.
     let mut rng = thread_rng();
     loop {
         let id = rng.gen();
