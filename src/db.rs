@@ -47,13 +47,21 @@ pub enum DbBackend {
 #[derive(Insertable)]
 #[table_name="uploads"]
 pub struct Upload {
+    // unique identifier for this upload
     pub id: i64,
+    // base64-encoded ciphertext of file name of this upload
     pub file_name: String,
+    // base64-encoded mime type of this upload
     pub mime_type: String,
     pub password_hash: Option<Vec<u8>>,
+    // number of remaining downloads (if download limit is enabled)
     pub remaining_downloads: Option<i32>,
+    // number of concurrent operations currently accessing this upload
     pub num_accessors: i32,
+    // deadline after which the upload expires
     pub expire_after: NaiveDateTime,
+    // whether or not the upload has fully completed
+    // used when reporting file size
     pub is_completed: bool
 }
 
