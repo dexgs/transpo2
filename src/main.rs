@@ -135,8 +135,6 @@ fn get_lang(conn: &mut Conn, default_lang: &str) -> String {
 }
 
 fn trillium_main(config: Arc<TranspoConfig>, translations: Arc<Translations>, db_backend: db::DbBackend) {
-    env_logger::init();
-
     let quotas = if config.quota_bytes == 0 {
         None
     } else {
