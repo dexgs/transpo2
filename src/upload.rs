@@ -972,7 +972,7 @@ async fn write_to_db(
         None
     };
 
-    let expire_after = Local::now().naive_local()
+    let expire_after = Local::now().naive_utc()
         + Duration::minutes(time_limit_minutes as i64);
 
     let upload = Upload {

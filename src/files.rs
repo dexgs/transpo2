@@ -202,7 +202,7 @@ impl EncryptedZipWriter {
     }
 
     pub fn start_new_file(&mut self, name: &str) -> Result<()> {
-        let now = Local::now().naive_local();
+        let now = Local::now().naive_utc();
         self.writer.start_new_file(name.to_owned().into_bytes(), now, self.compression, true)
     }
 
@@ -261,7 +261,7 @@ impl Read for FileReader {
 
         const ONE_SECOND: Duration = Duration::from_secs(1);
 
-        let now = Local::now().naive_local();
+        let now = Local::now().naive_utc();
         if now > self.expire_after {
             Err(Error::new(ErrorKind::Other, "Upload expired during download"))
         } else {

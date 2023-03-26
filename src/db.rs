@@ -96,7 +96,7 @@ impl Upload {
 
     // Return whether or not the expiry date for an upload has been reached
     pub fn is_expired_time(&self) -> bool {
-        let now = Local::now().naive_local();
+        let now = Local::now().naive_utc();
         now > self.expire_after
     }
 
@@ -152,7 +152,7 @@ impl Upload {
 
     // Return a list of IDs for expired (time-based) uploads
     pub fn select_expired(db_connection: &DbConnection) -> Option<Vec<i64>> {
-        let now = Local::now().naive_local();
+        let now = Local::now().naive_utc();
         let select = uploads::table
             .filter(uploads::expire_after.lt(now))
             .select(uploads::id);
