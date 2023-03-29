@@ -197,7 +197,10 @@ async function upload(
         socket.addEventListener('close', ev => {
             closeCallback(ev, obj);
 
-            if (progressTracker.uploadSucceeded) {
+            if (
+                progressTracker.uploadSucceeded
+                && socket.bufferedAmount == 0)
+            {
                 if (typeof completionCallback !== typeof undefined) {
                     completionCallback(id, obj);
                 }
