@@ -7,7 +7,7 @@ const MAX_BUFFERED_AMOUNT = 10_000_000;
 const MAX_SEND_WAIT_MS = 100;
 
 
-async function encryptStream(files, key, id, obj, progressCallback) {
+async function encryptStream(files, key) {
     let fileStream;
     if (files.length == 1) {
         fileStream = files[0].stream();
@@ -52,16 +52,25 @@ async function encryptStream(files, key, id, obj, progressCallback) {
             controller.enqueue(segmentPrefix);
             controller.enqueue(segmentCiphertext);
 
-            if (typeof progressCallback !== typeof undefined) {
-                progressCallback(id, segmentPlaintext.length, obj);
-            }
-
             segmentStart += segmentPlaintext.length;
         }
     });
 }
 
-async function readToSocket(socket, reader, progressTracker) {
+function updateProgress(socket, expectedBufferedAmount, id, obj, progressCallback) {
+    let actualBufferedAmount = socket.bufferedAmount;
+    let progress = expectedBufferedAmount - actualBufferedAmount;
+    if (typeof progressCallback !== typeof undefined) {
+        progressCallback(id, progress, obj);
+    }
+    return expectedBufferedAmount - progress;
+}
+
+async function readToSocket(
+    socket, reader, progressTracker, id, obj, progressCallback)
+{
+    let expectedBufferedAmount = 0;
+
     while (socket.readyState == WebSocket.OPEN) {
         const { done, value } = await reader.read();
         if (done) {
@@ -81,9 +90,16 @@ async function readToSocket(socket, reader, progressTracker) {
                 if (wait_ms < MAX_SEND_WAIT_MS / 2) {
                     wait_ms *= 2;
                 }
+                expectedBufferedAmount = updateProgress(
+                    socket, expectedBufferedAmount, id, obj, progressCallback);
             }
 
+            expectedBufferedAmount += value.byteLength;
+
             socket.send(value);
+
+            expectedBufferedAmount = updateProgress(
+                socket, expectedBufferedAmount, id, obj, progressCallback);
         }
     }
 }
@@ -220,12 +236,11 @@ async function upload(
             idCallback(id, encodedKey, maxDownloads, password, obj);
         }
 
-        const stream = await encryptStream(
-            files, key, id, obj,
-            progressCallback);
+        const stream = await encryptStream(files, key);
         const reader = stream.getReader();
 
-        await readToSocket(socket, reader, progressTracker);
+        await readToSocket(
+            socket, reader, progressTracker, id, obj, progressCallback);
     };
 
     socket.addEventListener('message', messageEventHandler);
