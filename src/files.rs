@@ -1,4 +1,6 @@
-use std::io::{Result, Error, ErrorKind, BufWriter, Write, Read, BufReader};
+use std::io::{
+    Result, Error, ErrorKind, BufWriter, Write,
+    Read, BufReader, Seek, SeekFrom};
 use std::path::{PathBuf, Path};
 use std::fs::{File, OpenOptions};
 use std::str;
@@ -234,19 +236,22 @@ impl Write for EncryptedZipWriter {
 // Basic wrapper around a buffered reader for a file.
 pub struct FileReader {
     reader: BufReader<File>,
-    expire_after: NaiveDateTime,
-    // consecutive_zeroes: usize
+    expire_after: NaiveDateTime
 }
 
 impl FileReader {
-    pub fn new(path: &PathBuf, expire_after: NaiveDateTime) -> Result<Self> {
-        let file = File::open(path)?;
+    pub fn new(
+            path: &PathBuf,
+            start_index: u64,
+            expire_after: NaiveDateTime) -> Result<Self>
+    {
+        let mut file = File::open(path)?;
+        file.seek(SeekFrom::Start(start_index))?;
         let reader = BufReader::new(file);
 
         let new = Self {
             reader,
-            expire_after,
-            //consecutive_zeroes: 0
+            expire_after
         };
 
         Ok(new)
@@ -304,8 +309,12 @@ fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<S
 impl EncryptedFileReader {
     // Return the reader + the decrypted file name and decrypted mime type
     pub fn new(
-        path: &PathBuf, expire_after: NaiveDateTime, key: &[u8],
-        name_cipher: &[u8], mime_cipher: &[u8]) -> Result<(Self, String, String)>
+        path: &PathBuf,
+        start_index: u64,
+        expire_after: NaiveDateTime,
+        key: &[u8],
+        name_cipher: &[u8],
+        mime_cipher: &[u8]) -> Result<(Self, String, String)>
     {
         let key_slice = b64::base64_decode(key).ok_or(other_error())?;
         let key = Key::from_slice(&key_slice);
@@ -316,7 +325,7 @@ impl EncryptedFileReader {
         let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error())?, &mut count)?;
 
         let new = Self {
-            reader: FileReader::new(path, expire_after)?,
+            reader: FileReader::new(path, start_index, expire_after)?,
             cipher: cipher,
             buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
             read_start: 0,

@@ -72,7 +72,8 @@ where R: Read {
 #[derive(Default)]
 struct DownloadQuery {
     crypto_key: Option<Vec<u8>>,
-    password: Option<Vec<u8>>
+    password: Option<Vec<u8>>,
+    start_index: u64
 }
 
 fn parse_query(query: &str) -> DownloadQuery {
@@ -89,6 +90,9 @@ fn parse_query(query: &str) -> DownloadQuery {
                 "password" => parsed.password = decode(value)
                     .ok()
                     .and_then(|s| Some(s.into_owned().into_bytes())),
+                "start_index" => if let Ok(start_index) = value.parse() {
+                    parsed.start_index = start_index;
+                }
                 _ => {}
             }
         }
@@ -207,6 +211,7 @@ pub async fn handle(
     let query = parse_query(conn.querystring());
     let crypto_key = query.crypto_key;
     let password = query.password;
+    let start_index = query.start_index;
 
     let response = {
         let config = config.clone();
@@ -231,8 +236,8 @@ pub async fn handle(
                 Some(key) => {
                     let (reader, mut file_name, mime_type) =
                         EncryptedFileReader::new(
-                            &upload_path, upload.expire_after, &key, upload.file_name.as_bytes(),
-                            upload.mime_type.as_bytes()).ok()?;
+                            &upload_path, start_index, upload.expire_after, &key,
+                            upload.file_name.as_bytes(), upload.mime_type.as_bytes()).ok()?;
 
                     // If file name is missing, assign one based on the app name and upload ID
                     if file_name.is_empty() {
@@ -245,13 +250,17 @@ pub async fn handle(
 
                     file_name = encode(&file_name).into_owned();
 
-                    let body = create_body_for(reader, accessor_mutex, db_backend, config);
+                    let body = create_body_for(
+                        reader, accessor_mutex, db_backend, config);
+
                     (body, file_name, mime_type)
                 },
                 // no server-side decryption
                 None => {
-                    let reader = FileReader::new(&upload_path, upload.expire_after).ok()?;
-                    let body = create_body_for(reader, accessor_mutex, db_backend, config);
+                    let reader = FileReader::new(
+                        &upload_path, start_index, upload.expire_after).ok()?;
+                    let body = create_body_for(
+                        reader, accessor_mutex, db_backend, config);
                     (body, upload.file_name, upload.mime_type)
                 }
             };
@@ -260,18 +269,19 @@ pub async fn handle(
         }).await
     };
 
-    if let Some((body, file_name, mime_type, ciphertext_size)) = response {
-        conn
-            .with_status(200)
-            .with_body(body)
-            .with_header("Cache-Control", "no-cache")
-            .with_header("Content-Type", mime_type)
-            .with_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size))
-            .with_header("Content-Disposition",
-                         format!("attachment; filename=\"{}\"", file_name))
-            .halt()
-    } else {
-        error_400(conn, config, translation)
+    match response {
+        Some((body, file_name, mime_type, ciphertext_size)) => {
+            conn
+                .with_status(200)
+                .with_body(body)
+                .with_header("Cache-Control", "no-cache")
+                .with_header("Content-Type", mime_type)
+                .with_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size))
+                .with_header("Content-Disposition",
+                             format!("attachment; filename=\"{}\"", file_name))
+                .halt()
+        },
+        None => error_400(conn, config, translation)
     }
 }
 
