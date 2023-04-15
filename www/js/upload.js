@@ -27,6 +27,7 @@ function errorCallback(error, obj) {
 
 function completionCallback(id, obj) {
     obj.listItem.classList.add("completed");
+    obj.progressBar.value = 100;
     delete sockets[obj.uploadNum];
 }
 
