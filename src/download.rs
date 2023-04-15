@@ -8,7 +8,7 @@ use crate::http_errors::*;
 use crate::translations::*;
 
 use std::io::{Read, Result};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use blocking::*;
 use trillium::{Conn, Body};
@@ -21,7 +21,7 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 struct Reader<R>
 where R: Read {
     reader: R,
-    accessor_mutex: Arc<Mutex<Accessor>>,
+    accessor_mutex: AccessorMutex,
     db_backend: DbBackend,
     config: Arc<TranspoConfig>
 }
@@ -30,7 +30,7 @@ impl<R> Reader<R>
 where R: Read
 {
     fn cleanup(&mut self) {
-        let mut accessor = self.accessor_mutex.lock().unwrap();
+        let accessor = self.accessor_mutex.lock();
 
         // If we're the last accessor, then it's our responsibility to
         // clean up the upload if it is now invalid!
@@ -49,8 +49,6 @@ where R: Read
                 delete_upload_dir(&self.config.storage_dir, accessor.id);
             }
         }
-
-        accessor.revoke();
     }
 }
 
@@ -107,7 +105,7 @@ fn get_upload(
     db_connection: &DbConnection) -> Option<Upload>
 {
     let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
-    let mut accessor = accessor_mutex.lock().unwrap();
+    let accessor = accessor_mutex.lock();
 
     let row = Upload::select_with_id(id, &db_connection)?;
 
@@ -121,8 +119,6 @@ fn get_upload(
     } else {
         Some(row)
     };
-
-    accessor.revoke();
 
     upload
 }
@@ -286,7 +282,7 @@ pub async fn handle(
 }
 
 fn create_body_for<R>(
-    reader: R, accessor_mutex: Arc<Mutex<Accessor>>,
+    reader: R, accessor_mutex: AccessorMutex,
     db_backend: DbBackend, config: Arc<TranspoConfig>) -> Body
 where R: Read + Sync + Send + 'static
 {
