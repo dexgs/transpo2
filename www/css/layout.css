@@ -7,7 +7,7 @@ h2 {
 }
 
 * {
-    font-family: sans-serif;
+    font-family: 'Cantarell', sans-serif;
 }
 
 .hidden {
@@ -43,19 +43,26 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 5px;
     margin: auto;
 }
 
 header#header {
-    width: 100%;
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
+    width: -moz-available;
+    width: -webkit-fill-available;
+    width: fill-available;
 }
 
 header#header > a {
     margin-left: 5px;
+}
+
+.header-right {
+    flex-grow: 1;
+    float: right;
+    align-self: center;
 }
 
 h1#title {
@@ -65,13 +72,10 @@ h1#title {
 }
 
 form#language-select-form {
-    flex-grow: 1;
     display: flex;
     justify-content: end;
     align-items: center;
-    align-self: center;
     gap: 5px;
-    float: right;
 }
 
 div.ui-frame {

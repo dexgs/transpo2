@@ -11,6 +11,7 @@
 
     --base-bg: white;
     --base-fg: #0a173e;
+    --base-fg-faint: #99a6bb;
 
     --error-bg: crimson;
     --error-fg: white;
@@ -23,7 +24,7 @@
     --warning-border: goldenrod;
 
     /* Specific colours */
-    --shadow: rgba(0, 0, 0, 0.2);
+    --shadow: rgba(0, 0, 0, 0.1);
     --page-bg: var(--base-bg);
     --text-fg: var(--base-fg);
 
@@ -34,7 +35,7 @@
     --uploaded-area-border: var(--area-border);
 
     --ui-bg: var(--base-bg);
-    --ui-border: var(--base-fg);
+    --ui-border: var(--base-fg-faint);
 
     --file-button-bg: var(--accent-bg);
     --file-button-fg: var(--accent-fg);
@@ -78,9 +79,9 @@
 
         --base-bg: var(--accent-border);
         --base-fg: aliceblue;
+        --base-fg-faint: black;
 
         --ui-bg: #1f2d48;
-        --ui-border: var(--accent-border);
 
         --area-bg: #354564;
 

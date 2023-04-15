@@ -11,12 +11,16 @@ h1#title::before {
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
-    position: absolute;
+    position: fixed;
     opacity: 80%;
     content: "";
     z-index: -1;
     margin-left: -200px;
     margin-top: 20px;
+}
+
+header#header {
+    transition: padding 0.3s;
 }
 
 header#header > a {
@@ -44,6 +48,8 @@ div.ui-frame {
     box-shadow: 0 2px 5px var(--shadow);
     border-color: var(--ui-border);
     background: var(--ui-bg);
+    border-radius: 8px;
+    transition: border-radius 0.3s;
 }
 
 div#file-area {
@@ -59,7 +65,8 @@ div#uploaded-area {
 hr {
     border: none;
     margin: auto;
-    border-bottom: 1px dashed;
+    border-bottom: 1px dashed var(--ui-border);
+    opacity: 50%;
 }
 
 fieldset input[type="checkbox"] {
@@ -101,11 +108,11 @@ button#download-button {
 }
 
 button#upload-button:hover, button#download-button:hover {
-    transform: scale(1.02);
+    transform: scale(1.01, 1.06);
 }
 
 button#upload-button:active, button#download-button:active {
-    transform: translateY(1px) scale(1);
+    transform: translateY(2px) scale(1);
 }
 
 button.file-list-item-remove, button.uploaded-list-item-remove {
@@ -272,5 +279,17 @@ footer a {
 
     to {
         transform: translateY(0);
+    }
+}
+
+@media (max-width: 800px) {
+    div.ui-frame {
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+    }
+
+    header#header {
+        padding: 0 8px;
     }
 }

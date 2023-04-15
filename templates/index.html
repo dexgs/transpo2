@@ -15,12 +15,6 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <title>{{ app_name }}</title>
 
-<style>
-body {
-    width: min(800px, 100% - 10px);
-}
-</style>
-
 <noscript>
 <style>
 body {
@@ -43,13 +37,13 @@ input#file-input {
 
     </head>
 
-    <body>
+    <body style="width: min(800px, 100%)">
         <header id="header">
             <h1 id="title">{{ app_name }}</h1>
             <a href="about">{{ t.get("index/about") }}</a>
 
             {% if lang_names.len() > 1 %}
-            <form id="language-select-form">
+            <form id="language-select-form" class="header-right">
                 <label for="language-select">{{ t.get("index/language-select") }}</label>
                 <select name="lang" id="language-select">
                 {% for (lang, name) in lang_names %}
