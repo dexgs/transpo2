@@ -102,6 +102,14 @@ async function readToSocket(
                 socket, expectedBufferedAmount, id, obj, progressCallback);
         }
     }
+
+    // after upload reading file finishes, there still may be enqueued data, so
+    // keep updating the progress until that finishes
+    while (socket.readyState != WebSocket.CLOSED) {
+        await new Promise(r => setTimeout(r, 100));
+        expectedBufferedAmount = updateProgress(
+            socket, expectedBufferedAmount, id, obj, progressCallback);
+    }
 }
 
 // Open a websocket connection over which a file will be uploaded. This function

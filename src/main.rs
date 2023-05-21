@@ -30,7 +30,7 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use std::net::IpAddr;
-use trillium::{Conn, Headers, State};
+use trillium::{Conn, Headers, state};
 use trillium_websockets::{WebSocketConn, WebSocketConfig, websocket};
 use trillium_router::{Router, RouterConnExt};
 use trillium_askama::AskamaConnExt;
@@ -104,16 +104,14 @@ fn addr_from_headers(headers: &Headers) -> Option<IpAddr> {
 }
 
 // query -> cookie -> default
-fn get_lang(conn: &mut Conn, default_lang: &str) -> String {
+fn get_lang(conn: &Conn, default_lang: &str) -> String {
     let mut query_lang = None;
-    let query_string = conn.querystring().to_string();
+    let query_string = conn.querystring();
     for arg in query_string.split("&") {
         if let Some((key, value)) = arg.split_once("=") {
             if key.trim() == "lang" {
                 let value = value.trim();
                 query_lang = Some(value);
-                conn.headers_mut()
-                    .insert("Set-Cookie", format!("lang={}", value));
                 break;
             }
         }
@@ -131,10 +129,23 @@ fn get_lang(conn: &mut Conn, default_lang: &str) -> String {
         }
     }
 
-    query_lang.or(cookie_lang).unwrap_or(default_lang).to_string()
+    query_lang.or(cookie_lang).unwrap_or(default_lang).to_owned()
 }
 
-fn trillium_main(config: Arc<TranspoConfig>, translations: Arc<Translations>, db_backend: db::DbBackend) {
+// get configuration values from connection state
+fn get_config(conn: &Conn) -> (
+    Arc<TranspoConfig>, Arc<Translations>, Translation, String)
+{
+    let state = conn.state::<TranspoState>().unwrap().clone();
+    let lang = get_lang(conn, &state.config.default_lang);
+    let translation = state.translations.get(&lang);
+    (state.config, state.translations, translation, lang)
+}
+
+fn trillium_main(
+    config: Arc<TranspoConfig>,
+    translations: Arc<Translations>, db_backend: db::DbBackend)
+{
     let quotas = if config.quota_bytes == 0 {
         None
     } else {
@@ -146,135 +157,105 @@ fn trillium_main(config: Arc<TranspoConfig>, translations: Arc<Translations>, db
         spawn_quotas_thread(quotas);
     }
 
-    let state = TranspoState {
+    let s = TranspoState {
         config: config.clone(),
         translations: translations.clone(),
         accessors: accessors.clone(),
         quotas: quotas.clone(),
     };
 
+    let router = Router::new()
+        .get("/", (state(s.clone()), move |mut conn: Conn| { async move {
+            let (config, translations, translation, lang) = get_config(&conn);
+
+            conn.headers_mut()
+                .insert("Set-Cookie", format!("lang={}; Path=.; SameSite=Lax", lang));
+
+            let index = IndexTemplate::new(
+                &config,
+                translations.names(),
+                &lang,
+                translation);
+
+            conn.render(index).halt()
+        }}))
+        .get("/about", (state(s.clone()), move |conn: Conn| { async move {
+            let (config, _, translation, _) = get_config(&conn);
+            let about = AboutTemplate::new(&config, translation);
+
+            conn.render(about).halt()
+        }}))
+        .get("/paste", (state(s.clone()), move |conn: Conn| { async move {
+            let (config, _, translation, _) = get_config(&conn);
+            let paste = PasteTemplate::new(&config, translation);
+
+            conn.render(paste).halt()
+        }}))
+        .post("/upload", (state(s.clone()), move |mut conn: Conn| { async move {
+            let (config, _, translation, _) = get_config(&conn);
+            let state = conn.take_state::<TranspoState>().unwrap();
+            let quotas_data = get_quotas_data(state.quotas, conn.headers());
+
+            upload::handle_post(conn, config, translation, db_backend, quotas_data).await
+        }}))
+        .get("/upload", (state(s.clone()), websocket(move |mut conn: WebSocketConn| { async move {
+            let state = conn.take_state::<TranspoState>().unwrap();
+            let quotas_data = get_quotas_data(state.quotas, conn.headers());
+
+            drop(upload::handle_websocket(conn, state.config, db_backend, quotas_data).await)
+        }}).with_protocol_config(WS_UPLOAD_CONFIG)))
+        .get("/:file_id", (state(s.clone()), move |conn: Conn| { async move {
+            let file_id = conn.param("file_id").unwrap().to_owned();
+            let (config, _, translation, _) = get_config(&conn);
+
+            if file_id.len() == ID_STRING_LENGTH {
+                let template = DownloadTemplate {
+                    file_id,
+                    app_name: &config.app_name,
+                    has_password: conn.querystring() != "nopass",
+                    t: translation
+                };
+
+                conn.render(template).halt()
+            } else {
+                http_errors::error_404(conn, config, translation)
+            }
+        }}))
+        .get("/:file_id/info", (state(s.clone()), move |mut conn: Conn| { async move {
+            let file_id = conn.param("file_id").unwrap().to_owned();
+            let (_, _, translation, _) = get_config(&conn);
+            let state = conn.take_state::<TranspoState>().unwrap();
+
+            download::info(
+                conn, file_id, state.config,
+                state.accessors, translation, db_backend).await
+        }}))
+        .get("/:file_id/dl", (state(s.clone()), move |mut conn: Conn| { async move {
+            let file_id = conn.param("file_id").unwrap().to_owned();
+            let (config, _, translation, _) = get_config(&conn);
+            let state = conn.take_state::<TranspoState>().unwrap();
+
+            download::handle(
+                conn, file_id, config, state.accessors, translation, db_backend).await
+        }}))
+        .get("/clear-data", move |conn: Conn| { async move {
+            conn
+                .with_status(200)
+                .with_header("Clear-Site-Data", "\"storage\"")
+                .with_body("Cleared site data (including service worker)")
+                .halt()
+        }})
+        .get("/download_worker.js", files(crate_relative_path!("www/js")))
+        .get("/js/*", files(crate_relative_path!("www/js")))
+        .get("/css/*", files(crate_relative_path!("www/css")))
+        .get("/res/*", files(crate_relative_path!("www/res")))
+        .get("*", (state(s.clone()), move |mut conn: Conn| { async move {
+            let (config, _, translation, _) = get_config(&mut conn);
+            http_errors::error_404(conn, config, translation)
+        }}));
+
     trillium_smol::config()
         .with_host("0.0.0.0")
         .with_port(config.port as u16)
-        .run(
-            Router::new()
-                .get("/", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-
-                        let index = IndexTemplate::new(
-                            state.config.as_ref(),
-                            state.translations.names(),
-                            &lang,
-                            state.translations.get(&lang)
-                            );
-
-                        conn.render(index).halt()
-                    }
-                }))
-                .get("/about", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-                        let translation = state.translations.get(&lang);
-                        let about = AboutTemplate::new(&state.config, translation);
-
-                        conn.render(about).halt()
-                    }
-                }))
-                .get("/download_worker.js", files(crate_relative_path!("www/js")))
-                .get("/js/*", files(crate_relative_path!("www/js")))
-                .get("/css/*", files(crate_relative_path!("www/css")))
-                .get("/res/*", files(crate_relative_path!("www/res")))
-                .post("/upload", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-                    let quotas_data = get_quotas_data(state.quotas, conn.headers());
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-                        let translation = state.translations.get(&lang);
-
-                        upload::handle_post(conn, state.config, translation, db_backend, quotas_data).await
-                    }
-                }))
-                .get("/upload", (State::new(state.clone()), websocket(move |mut conn: WebSocketConn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-                    let quotas_data = get_quotas_data(state.quotas, conn.headers());
-
-                    async move {
-                        drop(upload::handle_websocket(conn, state.config, db_backend, quotas_data).await)
-                    }
-                }).with_protocol_config(WS_UPLOAD_CONFIG)))
-                .get("/:file_id", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-                    let file_id = conn.param("file_id").unwrap().to_owned();
-                    let app_name = state.config.app_name.clone();
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-                        let translation = state.translations.get(&lang);
-
-                        if file_id.len() == ID_STRING_LENGTH {
-                            let template = DownloadTemplate {
-                                file_id,
-                                app_name,
-                                has_password: conn.querystring() != "nopass",
-                                t: translation
-                            };
-
-                            conn.render(template).halt()
-                        } else {
-                            http_errors::error_404(conn, state.config, translation)
-                        }
-                    }
-                }))
-                .get("/:file_id/info", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-                    let file_id = conn.param("file_id").unwrap().to_owned();
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-                        let translation = state.translations.get(&lang);
-
-                        download::info(
-                            conn, file_id, state.config,
-                            state.accessors, translation, db_backend).await
-                    }
-                }))
-                .get("/:file_id/dl", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-                    let file_id = conn.param("file_id").unwrap().to_owned();
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-                        let translation = state.translations.get(&lang);
-
-                        download::handle(
-                            conn, file_id, state.config,
-                            state.accessors, translation, db_backend).await
-                    }
-                }))
-                .get("/clear-data", move |conn: Conn| {
-                    async move {
-                        conn
-                            .with_status(200)
-                            .with_header("Clear-Site-Data", "\"storage\"")
-                            .with_body("Cleared site data (including service worker)")
-                            .halt()
-                    }
-                })
-                .get("*", (State::new(state.clone()), move |mut conn: Conn| {
-                    let state = conn.take_state::<TranspoState>().unwrap();
-
-                    async move {
-                        let lang = get_lang(&mut conn, &state.config.default_lang);
-                        let translation = state.translations.get(&lang);
-
-                        http_errors::error_404(conn, state.config, translation)
-                    }
-                }))
-        );
+        .run(router);
 }

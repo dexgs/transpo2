@@ -75,11 +75,17 @@ struct UploadQuery {
 
 impl UploadQuery {
     fn new(query: &str) -> Option<Self> {
+        const MAX_LEN: usize = 4096;
+
         let mut upload_query = Self::default();
 
         for field in query.split('&') {
             if let Some((key, value)) = field.split_once('=') {
                 if upload_query.is_key_defined(key) {
+                    return None;
+                }
+
+                if value.len() > MAX_LEN {
                     return None;
                 }
 

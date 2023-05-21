@@ -1,0 +1,22 @@
+<template id="uploaded-list-item-template" style="display: none;">
+    <li data-completed=false data-upload-num=0>
+        <span class="uploaded-list-item-failed-indicator" hidden>
+            <span class="hidden">(</span>
+            {{ t.get("index/failed") }}
+            <span class="hidden">)</span>
+        </span>
+        <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
+            {{ t.get("index/copy-url") }}
+        </button>
+        <a class="flex-no-expand" target="_blank">
+            <span class="uploaded-list-item-file-name"></span>
+            <span class="uploaded-list-item-other-files">
+                {{ t.get("index/more-files") }}
+            </span>
+        </a>
+        <button class="uploaded-list-item-remove" onclick="removeUploadedListEntry(this)">
+            <span class="hidden">{{ t.get("index/remove") }} </span><span aria-hidden="true">×</span>
+        </button>
+        <progress value="0" max="100"></progress>
+    </li>
+</template>

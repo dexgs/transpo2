@@ -1,19 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <meta charset="UTF-8"/>
-
-        <link rel="stylesheet" href="css/layout.css"/>
-        <link rel="stylesheet" href="css/custom/layout.css"/>
-
-        <link rel="stylesheet" href="css/colours.css"/>
-        <link rel="stylesheet" href="css/custom/colours.css"/>
-
-        <link rel="stylesheet" href="css/styles.css"/>
-        <link rel="stylesheet" href="css/custom/styles.css"/>
-
-
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        {% include "head.html" %}
         <title>{{ app_name }} | {{ t.get("about/title") }}</title>
     </head>
     <body style="width: min(800px, 100%);">

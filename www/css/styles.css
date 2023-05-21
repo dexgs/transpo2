@@ -216,6 +216,7 @@ ul#uploaded-list > li > a {
 }
 
 ul#uploaded-list > li.failed > a {
+    color: var(--text-fg);
     pointer-events: none;
 }
 
@@ -235,6 +236,13 @@ progress::-moz-progress-bar {
 
 progress::-webkit-progress-value {
     background-color: var(--progress-bar-fg);
+}
+
+textarea#paste-text-input {
+    font-family: monospace;
+    border: none;
+    border-radius: 5px;
+    padding: 5px;
 }
 
 div#about {

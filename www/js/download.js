@@ -31,7 +31,7 @@ async function downloadEventHandlerNoSW(e) {
 
 
 async function setupWorker(updateWorker) {
-    let registration = await navigator.serviceWorker.register("./download_worker.js");
+    let registration = await navigator.serviceWorker.register("/download_worker.js");
 
     if (updateWorker) {
         registration = await registration.update();

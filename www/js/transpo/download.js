@@ -30,6 +30,8 @@ function generateFileName(uploadID, mime) {
 
     if (mime == "application/zip") {
         name = name.concat(".zip");
+    } else if (mime == "text/plain") {
+        name = name.concat(".txt");
     }
 
     return name;

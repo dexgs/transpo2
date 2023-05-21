@@ -1,18 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <meta charset="UTF-8"/>
-
-        <link rel="stylesheet" href="css/layout.css"/>
-        <link rel="stylesheet" href="css/custom/layout.css"/>
-
-        <link rel="stylesheet" href="css/colours.css"/>
-        <link rel="stylesheet" href="css/custom/colours.css"/>
-
-        <link rel="stylesheet" href="css/styles.css"/>
-        <link rel="stylesheet" href="css/custom/styles.css"/>
-
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        {% include "head.html" %}
         <title>{{ app_name }}</title>
 
 <noscript>
@@ -41,6 +30,7 @@ input#file-input {
         <header id="header">
             <h1 id="title">{{ app_name }}</h1>
             <a href="about">{{ t.get("index/about") }}</a>
+            <a href="paste">{{ t.get("index/paste") }}</a>
 
             {% if lang_names.len() > 1 %}
             <form id="language-select-form" class="header-right">
@@ -101,64 +91,7 @@ input#file-input {
                     </div>
                 </div>
 
-                <h2>{{ t.get("index/upload-settings") }}</h2>
-
-                <fieldset id="time-limit-fields">
-                    <legend>
-                        {{ t.get("index/expire-after") }}
-                    </legend>
-                    <div>
-                        <label for="days-input">{{ t.get("index/days") }}</label>
-                        <input name="days" id="days-input" type="number" size="5" value="0" min="0" max="{{ max_days }}"/>
-                    </div>
-                    <div>
-                        <label for="hours-input">{{ t.get("index/hours") }}</label>
-                        <input name="hours" id="hours-input" type="number" size="4" value="0" min="0" max="{{ max_hours }}"/>
-                    </div>
-                    <div>
-                        <label for="minutes-input">{{ t.get("index/minutes") }}</label>
-                        <input name="minutes" id="minutes-input" type="number" size="4" value="30" min="0" max="{{ max_minutes }}"/>
-                    </div>
-                </fieldset>
-
-                <hr/>
-
-                <fieldset class="togglable-field">
-                    <legend class="hidden">{{ t.get("index/download-limit-settings") }}</legend>
-                    <input name="enable-max-downloads" id="enable-max-downloads-input" type="checkbox"/>
-                    <label for="enable-max-downloads-input">
-                        {{ t.get("index/enable-download-limit") }}
-                    </label>
-                    <div>
-                        <label for="max-downloads">
-                            {{ t.get("index/expire-after") }}
-                        </label>
-                        <input name="max-downloads" id="max-downloads-input" type="number" size="5" value="1" min="1"/>
-                        <span>{{ t.get("index/downloads") }}</span>
-                    </div>
-                </fieldset>
-
-                <hr/>
-
-                <fieldset class="togglable-field">
-                    <legend class="hidden">
-                        {{ t.get("index/password-protection-settings") }}
-                    </legend>
-                    <input name="enable-password" id="enable-password-input" type="checkbox">
-                    <label for="enable-password-input">
-                        {{ t.get("index/enable-password-protection") }}
-                    </label>
-                    <div>
-                        <label for="password-input">
-                            {{ t.get("index/password") }}
-                        </label>
-                        <input name="password" id="password-input" type="text"/>
-                    </div>
-                </fieldset>
-
-                <hr/>
-
-                <button id="upload-button">{{ t.get("index/upload") }}</button>
+                {% include "upload_settings.html" %}
             </form>
 
             <div id="uploaded-area">
@@ -187,33 +120,14 @@ input#file-input {
             </div>
         </template>
 
-        <template id="uploaded-list-item-template" style="display: none;">
-            <li>
-                <span class="uploaded-list-item-failed-indicator" hidden>
-                    <span class="hidden">(</span>
-                    {{ t.get("index/failed") }}
-                    <span class="hidden">)</span>
-                </span>
-                <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
-                    {{ t.get("index/copy-url") }}
-                </button>
-                <a class="flex-no-expand" target="_blank">
-                    <span class="uploaded-list-item-file-name"></span>
-                    <span class="uploaded-list-item-other-files">
-                        {{ t.get("index/more-files") }}
-                    </span>
-                </a>
-                <button class="uploaded-list-item-remove" onclick="removeUploadedListEntry(this)">
-                    <span class="hidden">{{ t.get("index/remove") }} </span><span aria-hidden="true">×</span>
-                </button>
-                <progress value="0" max="100"></progress>
-            </li>
-        </template>
+        {% include "uploaded_list_item.html" %}
 
 
         <script type="module" src="js/transpo/upload.js"></script>
 
         <script src="js/size_string.js"></script>
+        <script src="js/safe_string.js"></script>
+        <script src="js/upload_list.js"></script>
         <script src="js/files.js"></script>
         <script src="js/upload.js"></script>
         <script src="js/translations.js"></script>

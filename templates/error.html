@@ -1,18 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <meta charset="UTF-8"/>
-
-        <link rel="stylesheet" href="{{ path_prefix }}css/layout.css"/>
-        <link rel="stylesheet" href="{{ path_prefix }}css/custom/layout.css"/>
-
-        <link rel="stylesheet" href="{{ path_prefix }}css/colours.css"/>
-        <link rel="stylesheet" href="{{ path_prefix }}css/custom/colours.css"/>
-
-        <link rel="stylesheet" href="{{ path_prefix }}css/styles.css"/>
-        <link rel="stylesheet" href="{{ path_prefix }}css/custom/styles.css"/>
-
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        {% include "head.html" %}
         <title>{{ app_name }} | {{ t.get("error/title") }} {{ error_code }}</title>
     </head>
     <body>

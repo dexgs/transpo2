@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        {% include "head.html" %}
+        <title>{{ app_name }} | {{ t.get("paste/title") }}</title>
+    </head>
+
+    <body style="width: min(800px, 100%)">
+        <header id="header">
+            <h1 id="title">{{ t.get("paste/title") }}</h1>
+            <a href="../">{{ t.get("main-page") }}</a>
+        </header>
+        <div class="ui-frame">
+            <div class="flex-column" style="gap: 10px">
+                <div class="flex-row" style="flex-wrap: wrap">
+                    <form id="upload-form" class="flex-column" style="width: 300px; flex-grow: 0">
+                        {% include "upload_settings.html" %}
+                    </form>
+
+                    <div id="uploaded-area" style="align-self: stretch; flex-grow: 100">
+                        <h2>{{ t.get("paste/your-pastes") }}</h2>
+                        <div id="uploaded-list-container">
+                            <ul id="uploaded-list"></ul>
+                        </div>
+                    </div>
+                </div>
+
+                <textarea id="paste-text-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder={{ t.get("paste/textarea-placeholder") }}></textarea>
+            </div>
+        </div>
+
+        {% include "uploaded_list_item.html" %}
+
+
+        <script type="module" src="js/transpo/upload.js"></script>
+
+        <script src="js/safe_string.js"></script>
+        <script src="js/upload.js"></script>
+        <script src="js/upload_list.js"></script>
+        <script src="js/paste_upload.js"></script>
+
+        <script>
+            maxUploadSize = {{ max_upload_size }};
+        </script>
+    </body>
+</html>

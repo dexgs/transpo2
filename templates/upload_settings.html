@@ -1,0 +1,58 @@
+<h2>{{ t.get("index/upload-settings") }}</h2>
+
+<fieldset id="time-limit-fields">
+    <legend>
+        {{ t.get("index/expire-after") }}
+    </legend>
+    <div>
+        <label for="days-input">{{ t.get("index/days") }}</label>
+        <input name="days" id="days-input" type="number" size="5" value="0" min="0" max="{{ max_days }}"/>
+    </div>
+    <div>
+        <label for="hours-input">{{ t.get("index/hours") }}</label>
+        <input name="hours" id="hours-input" type="number" size="4" value="0" min="0" max="{{ max_hours }}"/>
+    </div>
+    <div>
+        <label for="minutes-input">{{ t.get("index/minutes") }}</label>
+        <input name="minutes" id="minutes-input" type="number" size="4" value="30" min="0" max="{{ max_minutes }}"/>
+    </div>
+</fieldset>
+
+<hr/>
+
+<fieldset class="togglable-field">
+    <legend class="hidden">{{ t.get("index/download-limit-settings") }}</legend>
+    <input name="enable-max-downloads" id="enable-max-downloads-input" type="checkbox"/>
+    <label for="enable-max-downloads-input">
+        {{ t.get("index/enable-download-limit") }}
+    </label>
+    <div>
+        <label for="max-downloads">
+            {{ t.get("index/expire-after") }}
+        </label>
+        <input name="max-downloads" id="max-downloads-input" type="number" size="5" value="1" min="1"/>
+        <span>{{ t.get("index/downloads") }}</span>
+    </div>
+</fieldset>
+
+<hr/>
+
+<fieldset class="togglable-field">
+    <legend class="hidden">
+        {{ t.get("index/password-protection-settings") }}
+    </legend>
+    <input name="enable-password" id="enable-password-input" type="checkbox">
+    <label for="enable-password-input">
+        {{ t.get("index/enable-password-protection") }}
+    </label>
+    <div>
+        <label for="password-input">
+            {{ t.get("index/password") }}
+        </label>
+        <input name="password" id="password-input" type="text"/>
+    </div>
+</fieldset>
+
+<hr/>
+
+<button id="upload-button">{{ t.get("index/upload") }}</button>

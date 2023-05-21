@@ -1,4 +1,4 @@
-const uploadForm = document.getElementById("upload-form")
+const uploadForm = document.getElementById("upload-form");
 const sockets = {};
 var uploadNum = 0;
 
@@ -7,7 +7,6 @@ function cancelUpload(uploadNum) {
     const socket = sockets[uploadNum];
 
     if (typeof socket !== typeof undefined) {
-        socket.send("CANCEL");
         socket.close();
     }
 
@@ -27,6 +26,7 @@ function errorCallback(error, obj) {
 
 function completionCallback(id, obj) {
     obj.listItem.classList.add("completed");
+    obj.listItem.dataset.completed = true;
     obj.progressBar.value = 100;
     delete sockets[obj.uploadNum];
 }
@@ -47,15 +47,22 @@ function idCallback(id, key, maxDownloads, password, obj) {
 async function upload(e) {
     e.preventDefault();
 
-    if (uploadSize > maxUploadSize) {
+    // `getFilesToUpload` is different in files.js vs. in paste_upload.js
+    const filesToUpload = getFilesToUpload();
+
+    let uploadSize = 0;
+    filesToUpload.forEach(file => {
+        uploadSize += file.size;
+    });
+
+    if (uploadSize * 1.05 > maxUploadSize) {
         return false;
     }
 
-    const files = filesToUpload;
     const formData = new FormData(uploadForm);
 
     if (filesToUpload.length < 1) {
-        return;
+        return false;
     }
 
     const minutes =
@@ -80,7 +87,7 @@ async function upload(e) {
     let obj = {
         bytesUploaded: 0,
         uploadSize: uploadSize,
-        files: files,
+        files: filesToUpload,
         socket: null,
         listItem: null,
         progressBar: null,
@@ -93,23 +100,17 @@ async function upload(e) {
         urlPrefix = "ws://";
     }
 
-    url = urlPrefix + location.host + location.pathname;
-
-    if (location.pathname.endsWith("/")) {
-        url = url + "upload";
-    } else {
-        url = url + "/upload";
-    }
+    url = new URL("upload", urlPrefix + location.host + location.pathname).toString();
 
     obj.socket = await transpoUpload(
-        url, files, minutes, maxDownloads, password, obj,
+        url, filesToUpload, minutes, maxDownloads, password, obj,
         progressCallback, completionCallback, idCallback, errorCallback, closeCallback);
 
     sockets[uploadNum] = obj.socket;
     obj.uploadNum = uploadNum;
     uploadNum += 1;
 
-    obj.listItem = addUploadedListItem(files, obj.uploadNum);
+    obj.listItem = await addUploadedListItem(filesToUpload, obj.uploadNum);
     obj.progressBar = obj.listItem.querySelector("PROGRESS");
 
     return false;
