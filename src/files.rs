@@ -236,14 +236,16 @@ impl Write for EncryptedZipWriter {
 // Basic wrapper around a buffered reader for a file.
 pub struct FileReader {
     reader: BufReader<File>,
-    expire_after: NaiveDateTime
+    expire_after: NaiveDateTime,
+    is_completed: bool
 }
 
 impl FileReader {
     pub fn new(
             path: &PathBuf,
             start_index: u64,
-            expire_after: NaiveDateTime) -> Result<Self>
+            expire_after: NaiveDateTime,
+            is_completed: bool) -> Result<Self>
     {
         let mut file = File::open(path)?;
         file.seek(SeekFrom::Start(start_index))?;
@@ -251,7 +253,8 @@ impl FileReader {
 
         let new = Self {
             reader,
-            expire_after
+            expire_after,
+            is_completed
         };
 
         Ok(new)
@@ -274,7 +277,7 @@ impl Read for FileReader {
 
             // The upload might still be in progress while we're downloading,
             // pause and do another read.
-            if bytes_read == 0 {
+            if bytes_read == 0 && !self.is_completed {
                 std::thread::sleep(ONE_SECOND);
                 self.reader.read(buf)
             } else {
@@ -312,6 +315,7 @@ impl EncryptedFileReader {
         path: &PathBuf,
         start_index: u64,
         expire_after: NaiveDateTime,
+        is_completed: bool,
         key: &[u8],
         name_cipher: &[u8],
         mime_cipher: &[u8]) -> Result<(Self, String, String)>
@@ -325,7 +329,7 @@ impl EncryptedFileReader {
         let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error())?, &mut count)?;
 
         let new = Self {
-            reader: FileReader::new(path, start_index, expire_after)?,
+            reader: FileReader::new(path, start_index, expire_after, is_completed)?,
             cipher: cipher,
             buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
             read_start: 0,

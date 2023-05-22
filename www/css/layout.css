@@ -75,7 +75,7 @@ form#language-select-form {
     gap: 5px;
 }
 
-div.ui-frame {
+.ui-frame {
     width: -webkit-fill-available;
     width: -moz-available;
     width: available;
@@ -83,6 +83,13 @@ div.ui-frame {
     box-sizing: border-box;
     padding: 10px;
     margin-bottom: 10px;
+}
+dialog.ui-frame {
+    width: -webkit-fit-content;
+    width: -moz-fit-content;
+    width: fit-content;
+    position: fixed;
+    top: 200px;
 }
 
 .flex-column {
@@ -304,7 +311,7 @@ ul#uploaded-list > li.completed > progress {
     opacity: 0%;
 }
 
-textarea#paste-text-input {
+textarea {
     min-width: 100%;
     max-width: 100%;
     box-sizing: border-box;

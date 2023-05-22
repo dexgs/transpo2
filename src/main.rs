@@ -208,15 +208,34 @@ fn trillium_main(
             let file_id = conn.param("file_id").unwrap().to_owned();
             let (config, _, translation, _) = get_config(&conn);
 
+            let mut has_password = true;
+            let mut is_paste = false;
+            for field in conn.querystring().split('&') {
+                match field {
+                    "nopass" => has_password = false,
+                    "paste" => is_paste = true,
+                    _ => {}
+                }
+            }
+
             if file_id.len() == ID_STRING_LENGTH {
-                let template = DownloadTemplate {
-                    file_id,
-                    app_name: &config.app_name,
-                    has_password: conn.querystring() != "nopass",
-                    t: translation
+                let conn = if is_paste {
+                    conn.render(PasteDownloadTemplate {
+                        file_id,
+                        app_name: &config.app_name,
+                        has_password,
+                        t: translation
+                    })
+                } else {
+                    conn.render(DownloadTemplate {
+                        file_id,
+                        app_name: &config.app_name,
+                        has_password,
+                        t: translation
+                    })
                 };
 
-                conn.render(template).halt()
+                conn.halt()
             } else {
                 http_errors::error_404(conn, config, translation)
             }

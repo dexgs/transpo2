@@ -41,7 +41,8 @@ function progressCallback(id, bytes, obj) {
 }
 
 function idCallback(id, key, maxDownloads, password, obj) {
-    setUploadedListItemData(obj.listItem, id, key, password !== null);
+    const isPaste_ = typeof isPaste === typeof true && isPaste;
+    setUploadedListItemData(obj.listItem, id, key, password !== null, isPaste_);
 }
 
 async function upload(e) {

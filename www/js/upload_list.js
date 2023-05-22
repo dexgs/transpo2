@@ -29,16 +29,28 @@ async function addUploadedListItem(files, uploadNum) {
     return listItem;
 }
 
-function setUploadedListItemData(listItem, id, key, hasPassword) {
+function setUploadedListItemData(listItem, id, key, hasPassword, isPaste) {
     listItem.classList.remove("missing-data");
 
     const link = listItem.querySelector("A");
 
-    if (hasPassword) {
-        link.href = id.concat("#", key);
-    } else {
-        link.href = id.concat("?nopass", "#", key);
+    let query = [];
+    if (!hasPassword) {
+        query.push("nopass");
     }
+    if (isPaste) {
+        query.push("paste");
+    }
+
+    link.href = id;
+
+    if (query.length > 0) {
+        link.href += "?";
+        link.href += query.join("&");
+    }
+
+    link.href += "#";
+    link.href += key;
 }
 
 function copyUploadURL(button) {

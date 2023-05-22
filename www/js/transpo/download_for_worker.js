@@ -115,9 +115,7 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
     return false;
 }
 
-async function decryptedStream(url) {
-    const key = await getKeyFromURL(url);
-
+async function decryptedStream(r, key) {
     let segment = new Uint8Array(2 + maxCiphertextSegmentSize);
     let segmentWriteStart = 0;
     // count starts at 2 since we first decrypt file name and mime type
@@ -128,8 +126,6 @@ async function decryptedStream(url) {
         'segmentWriteStart': segmentWriteStart,
         'count': count
     };
-
-    const r = await fetch(url);
 
     let stream;
 
@@ -176,7 +172,7 @@ async function decryptedResponse(url) {
     const key = await getKeyFromURL(url);
     const uploadID = getUploadIDFromURL(url);
 
-    const r = await fetch(uploadID + "/info" + url.search);
+    let r = await fetch(uploadID + "/info" + url.search);
     if (!r.ok) {
         return r;
     }
@@ -206,14 +202,18 @@ async function decryptedResponse(url) {
         headers.append("Content-Length", String(info.size));
     }
 
-    const init = {
-        "status": 200,
-        "headers": headers
-    };
+    r = await fetch(url);
+    if (r.ok) {
+        const stream = await decryptedStream(url, key);
 
-    const stream = await decryptedStream(url);
-
-    return new Response(stream, init);
+        const init = {
+            "status": 200,
+            "headers": headers
+        };
+        return new Response(stream, init);
+    } else {
+        return r;
+    }
 }
 
 // create a file download prompt for a response

@@ -33,15 +33,7 @@ center.flex-no-expand {
                 </noscript>
 
                 {% if has_password %}
-                <div class="flex-row">
-                    <label for="password-input">{{ t.get("download/password") }} </label>
-                    <input id="password-input" name="password" type="text"/>
-                </div>
-                <div class="flex-row">
-                    <center class="flex-no-expand small-text">
-                        {{ t.get("download/empty-password") }}
-                    </center>
-                </div>
+                {% include "download_password.html" %}
                 <hr/>
                 {% endif %}
 

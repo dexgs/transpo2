@@ -38,13 +38,13 @@ a.upload-link {
     color: var(--upload-link-fg);
 }
 
-div.ui-frame, div#file-area, div#uploaded-area,
+.ui-frame, div#file-area, div#uploaded-area,
 .nojs-warning, div.max-upload-size-warning {
     border: 1px solid;
     border-radius: 5px;
 }
 
-div.ui-frame {
+.ui-frame {
     box-shadow: 0 2px 5px var(--shadow);
     border-color: var(--ui-border);
     background: var(--ui-bg);
@@ -238,8 +238,9 @@ progress::-webkit-progress-value {
     background-color: var(--progress-bar-fg);
 }
 
-textarea#paste-text-input {
+textarea {
     font-family: monospace;
+    font-size: 10pt;
     border: none;
     border-radius: 5px;
     padding: 5px;
@@ -247,6 +248,10 @@ textarea#paste-text-input {
 
 div#about {
     line-height: 1.5;
+}
+
+footer {
+    text-align: center;
 }
 
 footer a {
@@ -291,7 +296,7 @@ footer a {
 }
 
 @media (max-width: 800px) {
-    div.ui-frame {
+    .ui-frame {
         border-radius: 0;
         border-left: 0;
         border-right: 0;

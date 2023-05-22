@@ -123,6 +123,15 @@ pub struct DownloadTemplate<'a> {
 }
 
 #[derive(Template, Clone)]
+#[template(path = "paste_download.html", escape = "none")]
+pub struct PasteDownloadTemplate<'a> {
+    pub file_id: String,
+    pub app_name: &'a String,
+    pub has_password: bool,
+    pub t: Translation
+}
+
+#[derive(Template, Clone)]
 #[template(path = "error.html", escape = "none")]
 pub struct ErrorTemplate<'a> {
     pub error_code: usize,

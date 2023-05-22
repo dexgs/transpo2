@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
+        <base href="{{ path_prefix }}"/>
         {% include "head.html" %}
         <title>{{ app_name }} | {{ t.get("error/title") }} {{ error_code }}</title>
     </head>

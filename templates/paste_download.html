@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        {% include "head.html" %}
+        <title>{{ app_name }} | {{ t.get("paste_download/title") }}</title>
+    </head>
+    <body style="width: min(800px, 100%)">
+        <header id="header">
+            <h1 id="title">{{ t.get("paste_download/title") }}</h1>
+            <a href="../">{{ t.get("main-page") }}</a>
+        </header>
+
+        <div class="ui-frame flex-column">
+            <textarea autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" id="paste-text-output" readonly></textarea>
+            {% if has_password %}
+            <dialog id="password-dialog" class="ui-frame" aria-modal="true" open>
+                <form id="download-form" class="flex-column" method="dialog">
+                    {% include "download_password.html" %}
+                    <hr/>
+                    <button id="download-button">{{ t.get("download/download") }}</button>
+                </form>
+            </dialog>
+            {% endif %}
+        </div>
+
+
+        <script>
+            const hasPassword = {{ has_password }};
+            const appName = "{{ app_name }}";
+        </script>
+
+        <script type="module" src="js/transpo/download.js"></script>
+        <script src="js/paste_download.js"></script>
+    </body>
+</html>

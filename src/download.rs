@@ -232,8 +232,8 @@ pub async fn handle(
                 Some(key) => {
                     let (reader, mut file_name, mime_type) =
                         EncryptedFileReader::new(
-                            &upload_path, start_index, upload.expire_after, &key,
-                            upload.file_name.as_bytes(), upload.mime_type.as_bytes()).ok()?;
+                            &upload_path, start_index, upload.expire_after, upload.is_completed,
+                            &key, upload.file_name.as_bytes(), upload.mime_type.as_bytes()).ok()?;
 
                     // If file name is missing, assign one based on the app name and upload ID
                     if file_name.is_empty() {
@@ -254,7 +254,8 @@ pub async fn handle(
                 // no server-side decryption
                 None => {
                     let reader = FileReader::new(
-                        &upload_path, start_index, upload.expire_after).ok()?;
+                        &upload_path, start_index, upload.expire_after,
+                        upload.is_completed).ok()?;
                     let body = create_body_for(
                         reader, accessor_mutex, db_backend, config);
                     (body, upload.file_name, upload.mime_type)

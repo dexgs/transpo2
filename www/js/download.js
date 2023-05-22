@@ -22,7 +22,15 @@ async function downloadEventHandlerSW(e) {
 async function downloadEventHandlerNoSW(e) {
     e.preventDefault();
 
-    const url = new URL(location.origin + location.pathname + "/dl" + location.hash);
+    let password = "";
+    const passwordInput = document.getElementById("password-input");
+    if (passwordInput) {
+        password = encodeURIComponent(passwordInput.value);
+    }
+
+    const url = new URL(
+        location.origin + location.pathname + "/dl"
+        + "?password=" + password + location.hash);
 
     if (!await transpoDownload(url)) {
         window.location = url;
