@@ -316,6 +316,7 @@ textarea {
     max-width: 100%;
     box-sizing: border-box;
     height: 50vh;
+    max-height: 85vh;
     min-height: 100px;
 }
 
