@@ -175,6 +175,10 @@ div#file-area > div.max-upload-size-warning, div.nojs-warning {
     border-color: var(--warning-border);
 }
 
+legend {
+    padding: 0;
+}
+
 button.uploaded-list-item-copy-url, span.uploaded-list-item-failed-indicator {
     font-size: 11px;
     font-weight: bold;
