@@ -13,11 +13,11 @@
         <div class="ui-frame">
             <div class="flex-column" style="gap: 10px">
                 <div class="flex-row" style="flex-wrap: wrap">
-                    <form id="upload-form" class="flex-column" style="width: 300px; flex-basis: min-content">
+                    <form id="upload-form" class="flex-column" style="width: 300px; flex-grow: 1">
                         {% include "upload_settings.html" %}
                     </form>
 
-                    <div id="uploaded-area" style="align-self: stretch; flex-grow: 2">
+                    <div id="uploaded-area" style="align-self: stretch; flex-grow: 100">
                         <h2>{{ t.get("paste/your-pastes") }}</h2>
                         <div id="uploaded-list-container">
                             <ul id="uploaded-list"></ul>
