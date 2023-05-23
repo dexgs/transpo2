@@ -5,12 +5,12 @@
         <title>{{ app_name }} | {{ t.get("paste/title") }}</title>
     </head>
 
-    <body style="width: min(800px, 100%)">
+    <body>
         <header id="header">
             <h1 id="title">{{ t.get("paste/title") }}</h1>
             <a href="../">{{ t.get("main-page") }}</a>
         </header>
-        <div class="ui-frame">
+        <div id="transpo-main" class="ui-frame">
             <div class="flex-column" style="gap: 10px">
                 <div class="flex-row" style="flex-wrap: wrap">
                     <form id="upload-form" class="flex-column" style="width: 300px; flex-grow: 1">

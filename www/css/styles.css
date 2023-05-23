@@ -296,7 +296,7 @@ footer a {
 }
 
 @media (max-width: 800px) {
-    .ui-frame {
+    div#transpo-main {
         border-radius: 0;
         border-left: 0;
         border-right: 0;

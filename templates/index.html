@@ -21,12 +21,15 @@ fieldset.togglable-field div {
 input#file-input {
     width: 300px;
 }
+a[href="paste"] {
+    display: none;
+}
 </style>
 </noscript>
 
     </head>
 
-    <body style="width: min(800px, 100%)">
+    <body>
         <header id="header">
             <h1 id="title">{{ app_name }}</h1>
             <a href="about">{{ t.get("index/about") }}</a>

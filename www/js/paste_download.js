@@ -3,7 +3,7 @@ const downloadButton = document.getElementById("download-button");
 const pasteTextOutput = document.getElementById("paste-text-output");
 const passwordDialog = document.getElementById("password-dialog");
 
-async function downloadPaste() {
+async function downloadPaste(replaceUrl) {
     let password = "";
     const passwordInput = document.getElementById("password-input");
     if (passwordInput) {
@@ -19,17 +19,23 @@ async function downloadPaste() {
         pasteTextOutput.value = await r.text();
         return true;
     } else {
+        if (replaceUrl) {
+            window.location.replace(url);
+        } else {
+            window.location = url;
+        }
         return false;
     }
 }
 
 window.onload = async function() {
     if (!hasPassword) {
-        await downloadPaste();
+        // replace the current page to prevent infinite back button loop
+        await downloadPaste(true);
     } else {
         downloadForm.addEventListener("submit", async e => {
             e.preventDefault();
-            const success = await downloadPaste();
+            const success = await downloadPaste(false);
             if (success) {
                 passwordDialog.remove();
             }
