@@ -204,7 +204,7 @@ async function decryptedResponse(url) {
 
     r = await fetch(url);
     if (r.ok) {
-        const stream = await decryptedStream(url, key);
+        const stream = await decryptedStream(r, key);
 
         const init = {
             "status": 200,
