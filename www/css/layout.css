@@ -77,18 +77,15 @@ form#language-select-form {
 }
 
 .ui-frame {
-    width: -webkit-fill-available;
-    width: -moz-available;
-    width: available;
+    min-width: -webkit-fit-content;
+    min-width: -moz-fit-content;
+    min-width: fit-content;
     max-width: 100vw;
     box-sizing: border-box;
     padding: 10px;
     margin-bottom: 10px;
 }
 dialog.ui-frame {
-    min-width: -webkit-fit-content;
-    min-width: -moz-fit-content;
-    min-width: fit-content;
     position: fixed;
     top: 200px;
 }
