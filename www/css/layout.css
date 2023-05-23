@@ -336,3 +336,9 @@ textarea {
         font-size: 9pt;
     }
 }
+
+@media (max-width: 800px) {
+    div.ui-frame {
+        width: 100vw;
+    }
+}
