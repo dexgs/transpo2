@@ -101,7 +101,7 @@ dialog.ui-frame {
 }
 
 div#transpo-main {
-    pref-width: 800px;
+    width: 800px;
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
