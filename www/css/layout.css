@@ -311,10 +311,10 @@ ul#uploaded-list > li.completed > progress {
 
 textarea {
     min-width: 100%;
-    max-width: 100%;
+    max-width: calc(100vw - 40px);
     box-sizing: border-box;
     height: 50vh;
-    max-height: calc(100vh - 80px);
+    max-height: calc(100vh - 40px);
     min-height: 100px;
 }
 
