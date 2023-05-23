@@ -25,7 +25,7 @@ self.addEventListener("message", e => {
 self.addEventListener("fetch", e => {
     const url = new URL(e.request.url);
     const isDownloadPath = url.pathname.endsWith("/dl") || url.pathname.endsWith("/dl/");
-    const noServiceWorker = url.searchParams.get("nosw") && true;
+    const noServiceWorker = url.searchParams.get("nosw") != null;
 
     if (isDownloadPath && !noServiceWorker) {
         e.respondWith(decryptedResponse(url));
