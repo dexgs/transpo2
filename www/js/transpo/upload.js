@@ -74,14 +74,7 @@ async function readToSocket(
     while (socket.readyState == WebSocket.OPEN) {
         const { done, value } = await reader.read();
         if (done) {
-            progressTracker.uploadSucceeded = true;
-
-            if (
-                socket.readyState != WebSocket.CLOSING
-                && socket.readyState != WebSocket.CLOSED)
-            {
-                socket.close();
-            }
+            break;
         } else {
             // wait for the buffered amount to fall before enqueuing more data.
             let wait_ms = 1;
@@ -105,10 +98,19 @@ async function readToSocket(
 
     // after upload reading file finishes, there still may be enqueued data, so
     // keep updating the progress until that finishes
-    while (socket.readyState != WebSocket.CLOSED) {
+    while (socket.readyState != WebSocket.CLOSED && expectedBufferedAmount > 0) {
         await new Promise(r => setTimeout(r, 100));
         expectedBufferedAmount = updateProgress(
             socket, expectedBufferedAmount, id, obj, progressCallback);
+    }
+
+    progressTracker.uploadSucceeded = true;
+
+    if (
+        socket.readyState != WebSocket.CLOSING
+        && socket.readyState != WebSocket.CLOSED)
+    {
+        socket.close();
     }
 }
 
@@ -149,6 +151,7 @@ async function readToSocket(
 // `errorCallback` is called with 2 arguments:
 //  - The error event
 //  - `obj`
+//  - the error code
 //
 //  `closeCallback` is called with 2 arguments:
 //  - The close event
@@ -161,7 +164,8 @@ async function readToSocket(
 //
 // `completionCallback` is called when an upload finishes successfully.
 //
-// `errorCallback` is called when the websocket raises an error.
+// `errorCallback` is called when the websocket raises an error or the server
+// reports an error code back to the client.
 //
 // `closeCallback` is called when the websocket closes.
 //
@@ -213,7 +217,7 @@ async function upload(
 
     if (typeof errorCallback !== typeof undefined) {
         socket.addEventListener('error', ev => {
-            errorCallback(ev, obj);
+            errorCallback(ev, obj, -1);
         });
     }
 
@@ -229,13 +233,21 @@ async function upload(
                     completionCallback(id, obj);
                 }
             } else if (typeof errorCallback !== typeof undefined) {
-                errorCallback(ev, obj);
+                errorCallback(ev, obj, -1);
             }
         });
     }
 
     const messageEventHandler = async e => {
         socket.removeEventListener('message', messageEventHandler);
+        // if the server sends another message, it will be to report an error
+        // code to the client.
+        socket.addEventListener('message', msg => {
+            if (typeof errorCallback !== typeof undefined) {
+                const msgArr = new Uint8Array(msg.data);
+                errorCallback(msg, obj, msgArr[0]);
+            }
+        });
 
         id = e.data;
         const encodedKey = await encodeKey(key);

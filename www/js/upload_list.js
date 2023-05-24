@@ -66,13 +66,18 @@ function copyUploadURL(button) {
     textArea.remove();
 }
 
-function removeUploadedListEntry(button) {
-    // find the list item containing the button
-    let pElement = button.parentElement;
+function findListEntry(el) {
+    // find the list item containing el
+    let pElement = el.parentElement;
     while (pElement.nodeName != "LI") {
         pElement = pElement.parentElement;
     }
-    const listEntry = pElement;
+    return pElement;
+}
+
+function removeUploadedListEntry(button) {
+    // find the list item containing el
+    const listEntry = findListEntry(button);
 
     if (listEntry.dataset.completed != true) {
         const uploadNum = listEntry.dataset.uploadNum;
@@ -80,4 +85,9 @@ function removeUploadedListEntry(button) {
     }
 
     listEntry.remove();
+}
+
+function showErrorReason(button) {
+    const listEntry = findListEntry(button);
+    showError(listEntry.dataset.errorCode);
 }

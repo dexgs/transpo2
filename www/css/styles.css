@@ -3,6 +3,10 @@ body {
     background: var(--page-bg);
 }
 
+dialog {
+    color: var(--text-fg);
+}
+
 h1#title::before {
     display: block;
     width: 200px;
@@ -179,13 +183,14 @@ legend {
     padding: 0;
 }
 
-button.uploaded-list-item-copy-url, span.uploaded-list-item-failed-indicator {
+button.uploaded-list-item-copy-url, button.uploaded-list-item-failed-button {
     font-size: 11px;
     font-weight: bold;
     padding: 0;
     padding-left: 2px;
     padding-right: 2px;
     margin-right: 2px;
+    border: unset;
     border-radius: 5px;
     min-width: 51px;
     text-align: center;
@@ -198,10 +203,11 @@ button.uploaded-list-item-copy-url {
     border: 1px solid var(--copy-url-button-border);
 }
 
-span.uploaded-list-item-failed-indicator {
+button.uploaded-list-item-failed-button {
     line-height: 20px;
     color: var(--upload-failed-fg);
     background-color: var(--upload-failed-bg);
+    cursor: help;
 }
 
 ul#uploaded-list > li {

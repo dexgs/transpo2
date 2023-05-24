@@ -14,9 +14,9 @@ environment variables. The available options are as follows:
  -s / TRANSPO_MAX_STORAGE_SIZE_BYTES     <number> : maximum total size of all uploads currently stored
  -p / TRANSPO_PORT                       <number> : port to which Transpo will bind
  -c / TRANSPO_COMPRESSION_LEVEL      <number 0-9> : gzip compression level to use when creating zip archives
- -q / TRANSPO_QUOTA_BYTES                <number> : maximum number of bytes a single IP address can upload
+ -q / TRANSPO_QUOTA_BYTES_TOTAL          <number> : maximum number of bytes a single IP address can upload
                                                     within the quota interval. (set to 0 to disable)
- -i / TRANSPO_QUOTA_INTERVAL_MINUTES     <number> : number of minutes before quotas are reset
+ -b / TRANSPO_QUOTA_BYTES_PER_MINUTE     <number> : number of bytes to refund to each quota per minute
  -t / TRANSPO_READ_TIMEOUT_MILLISECONDS  <number> : number of milliseconds before which each read must
                                                     complete or else the upload is aborted
  -d / TRANSPO_STORAGE_DIRECTORY            <path> : path to the directory where Transpo will store uploads
@@ -37,8 +37,8 @@ pub struct TranspoConfig {
     pub max_storage_size_bytes: usize,
     pub port: usize,
     pub compression_level: usize,
-    pub quota_bytes: usize,
-    pub quota_interval_minutes: usize,
+    pub quota_bytes_total: usize,
+    pub quota_bytes_per_minute: usize,
     pub read_timeout_milliseconds: usize,
     pub storage_dir: PathBuf,
     pub db_url: String,
@@ -64,9 +64,10 @@ impl Default for TranspoConfig {
             compression_level: 0,
 
             // 0B (disabled)
-            quota_bytes: 0,
-            // 1 Hour
-            quota_interval_minutes: 60,
+            quota_bytes_total: 0,
+
+            // 10GiB / hour
+            quota_bytes_per_minute: 17895697,
 
             read_timeout_milliseconds: 800,
 
@@ -149,12 +150,12 @@ impl TranspoConfig {
                     self.compression_level = value.parse()
                         .expect("Parsing configured compression level");
                 },
-                "-q" | "TRANSPO_QUOTA_BYTES" => {
-                    self.quota_bytes = value.parse()
+                "-q" | "TRANSPO_QUOTA_BYTES_TOTAL" => {
+                    self.quota_bytes_total = value.parse()
                         .expect("Parsing configured upload quota limit");
                 },
-                "-i" | "TRANSPO_QUOTA_INTERVAL_MINUTES" => {
-                    self.quota_interval_minutes = value.parse()
+                "-b" | "TRANSPO_QUOTA_BYTES_PER_MINUTE" => {
+                    self.quota_bytes_per_minute = value.parse()
                         .expect("Parsing configured quota clear interval");
                 },
                 "-t" | "TRANSPO_READ_TIMEOUT_MILLISECONDS" => {

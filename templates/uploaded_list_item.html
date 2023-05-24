@@ -1,10 +1,10 @@
 <template id="uploaded-list-item-template" style="display: none;">
     <li data-completed=false data-upload-num=0>
-        <span class="uploaded-list-item-failed-indicator" hidden>
+        <button class="uploaded-list-item-failed-button" onclick="showErrorReason(this)" hidden>
             <span class="hidden">(</span>
             {{ t.get("index/failed") }}
             <span class="hidden">)</span>
-        </span>
+        </button>
         <button class="uploaded-list-item-copy-url" onclick="copyUploadURL(this)">
             {{ t.get("index/copy-url") }}
         </button>

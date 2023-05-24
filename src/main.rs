@@ -40,7 +40,7 @@ use trillium_static::{files, crate_relative_path};
 const X_REAL_IP: &'static str = "X-Real-IP";
 
 const WS_UPLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
-    max_send_queue: None,
+    max_send_queue: Some(1),
     max_message_size: Some(FORM_READ_BUFFER_SIZE * 2),
     max_frame_size: Some(FORM_READ_BUFFER_SIZE * 2),
     accept_unmasked_frames: false
@@ -146,7 +146,7 @@ fn trillium_main(
     config: Arc<TranspoConfig>,
     translations: Arc<Translations>, db_backend: db::DbBackend)
 {
-    let quotas = if config.quota_bytes == 0 {
+    let quotas = if config.quota_bytes_total == 0 {
         None
     } else {
         Some(Quotas::from(config.as_ref()))

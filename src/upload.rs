@@ -63,6 +63,21 @@ const MAX_DOWNLOADS_QUERY: &'static str = "max-downloads";
 const FILE_NAME_QUERY: &'static str = "file-name";
 const MIME_TYPE_QUERY: &'static str = "mime-type";
 
+enum UploadError {
+    FileSize = 1,
+    Quota = 2,
+    Storage = 3,
+    Protocol = 4,
+
+    Other = 0
+}
+
+impl From<Error> for UploadError {
+    fn from(_: Error) -> Self {
+        Self::Other
+    }
+}
+
 
 #[derive(Default)]
 struct UploadQuery {
@@ -356,15 +371,24 @@ pub async fn handle_websocket(
             let upload_result = websocket_read_loop(
                 &mut conn, &upload_path, config.clone(), quotas_data).await;
 
-            let write_is_completed_success =
-                write_is_completed(upload_id, db_backend, config.clone()).await.is_some();
+            match upload_result {
+                Ok(()) => {
+                    let write_is_completed_success =
+                        write_is_completed(upload_id, db_backend, config.clone()).await.is_some();
 
-            if upload_result.is_ok() && write_is_completed_success {
-                // Don't handle error, since client may have already closed its
-                // end in which case closing here will return an error, but
-                // this error should *not* cause the upload to fail.
-                drop(conn.send(Message::Close(None)).await);
-                return Ok(());
+                    if write_is_completed_success {
+                        // Don't handle error, since client may have already closed its
+                        // end in which case closing here will return an error, but
+                        // this error should *not* cause the upload to fail.
+                        drop(conn.send(Message::Close(None)).await);
+                        return Ok(()); // return early
+                    } else {
+                        drop(conn.send(Message::Binary(vec![UploadError::Other as u8])).await);
+                    }
+                },
+                Err(e) => {
+                    drop(conn.send(Message::Binary(vec![e as u8])).await);
+                }
             }
         }
 
@@ -379,15 +403,16 @@ pub async fn handle_websocket(
         }).await;
     }
 
+    drop(conn.send(Message::Close(None)).await);
     Err(Error::new(ErrorKind::Other, "Upload failed"))
 }
 
 async fn websocket_read_loop(
     conn: &mut WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
-    quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
+    quotas_data: Option<(Quotas, IpAddr)>) -> std::result::Result<(), UploadError>
 {
     if is_storage_full(config.clone()).await? {
-        return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+        return Err(UploadError::Storage);
     }
 
     let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
@@ -405,23 +430,29 @@ async fn websocket_read_loop(
                 if let Some(true) = quotas_data.as_ref().map(
                     |(q, a)| q.exceeds_quota(a, b.len()))
                 {
-                    return Err(Error::new(ErrorKind::Other, "Quota exceeded"));
+                    return Err(UploadError::Quota);
                 } else if b.len() > FORM_READ_BUFFER_SIZE * 2 {
-                    return Err(Error::new(ErrorKind::InvalidData, "Message too big"));
+                    return Err(UploadError::Protocol);
                 } else {
                     bytes_read_interval += b.len();
                     if bytes_read_interval > STORAGE_CHECK_INTERVAL {
                         bytes_read_interval = 0;
+
                         if is_storage_full(config.clone()).await? {
-                            return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+                            return Err(UploadError::Storage);
                         }
 
                         if !upload_path.exists() {
-                            return Err(Error::new(ErrorKind::Other, "Upload file removed"));
+                            return Err(UploadError::Other);
                         }
                     }
 
-                    writer.write_all(&b).await?;
+                    if let Err(e) = writer.write_all(&b).await {
+                        return match e.kind() {
+                            ErrorKind::WriteZero => Err(UploadError::FileSize),
+                            _ => Err(UploadError::Other)
+                        };
+                    }
                 }
             },
             Message::Close(_) => {
@@ -429,15 +460,14 @@ async fn websocket_read_loop(
                 return Ok(());
             },
             _ => {
-                conn.close().await.map_err(|_| Error::new(
-                        ErrorKind::Other,
-                        "Failed to close websocket gracefully"))?;
-                return Err(Error::new(ErrorKind::InvalidData, "Invalid message type"));
+                drop(conn.close().await);
+                return Err(UploadError::Protocol);
             }
         }
     }
 
-    Err(Error::new(ErrorKind::Other, "Websocket not properly closed"))
+    // websocket not properly closed
+    Err(UploadError::Protocol)
 }
 
 pub async fn handle_post(

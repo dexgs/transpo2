@@ -17,9 +17,13 @@ function closeCallback(close, obj) {
     delete sockets[obj.uploadNum];
 }
 
-function errorCallback(error, obj) {
+function errorCallback(error, obj, errorCode) {
+    if (typeof obj.listItem.dataset.errorCode == typeof undefined) {
+        obj.listItem.dataset.errorCode = errorCode;
+    }
+    obj.listItem.dataset.completed = true;
     obj.listItem.classList.add("failed");
-    obj.listItem.querySelector(".uploaded-list-item-failed-indicator").hidden = false;
+    obj.listItem.querySelector(".uploaded-list-item-failed-button").hidden = false;
     obj.listItem.querySelector(".uploaded-list-item-copy-url").hidden = true;
     delete sockets[obj.uploadNum];
 }

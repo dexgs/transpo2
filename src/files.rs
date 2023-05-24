@@ -55,7 +55,7 @@ impl Write for FileWriter {
     fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         self.bytes_written += bytes.len();
         if self.bytes_written > self.max_upload_size {
-            return Err(other_error());
+            return Err(other_error("Maximum upload size exceeded"));
         }
 
         self.writer.write_all(bytes)?;
@@ -91,7 +91,7 @@ fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> Result<V
 
     match cipher.encrypt(Nonce::from_slice(&nonce_bytes), string.as_bytes()) {
         Ok(ciphertext) => Ok(ciphertext),
-        Err(_) => Err(other_error())
+        Err(_) => Err(other_error("encrypt"))
     }
 }
 
@@ -155,10 +155,10 @@ where W: Write
                 writer.write_all(&buffer)?;
                 Ok(plaintext.len())
             } else {
-                Err(other_error())
+                Err(other_error("Plaintext too large"))
             }
         },
-        Err(_) => Err(other_error())
+        Err(_) => Err(other_error("encrypt_in_place"))
     }
 }
 
@@ -304,8 +304,8 @@ fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<S
     *count += 1;
 
     match cipher.decrypt(Nonce::from_slice(&nonce_bytes), bytes) {
-        Ok(plaintext) => String::from_utf8(plaintext).or(Err(other_error())),
-        Err(_) => Err(other_error())
+        Ok(plaintext) => String::from_utf8(plaintext).or(Err(other_error("from_utf8"))),
+        Err(_) => Err(other_error("decrypt"))
     }
 }
 
@@ -320,13 +320,13 @@ impl EncryptedFileReader {
         name_cipher: &[u8],
         mime_cipher: &[u8]) -> Result<(Self, String, String)>
     {
-        let key_slice = b64::base64_decode(key).ok_or(other_error())?;
+        let key_slice = b64::base64_decode(key).ok_or(other_error("base64_decode"))?;
         let key = Key::from_slice(&key_slice);
         let cipher = Aes256Gcm::new(key);
         let mut count = 0;
 
-        let name = decrypt_string(&cipher, &b64::base64_decode(name_cipher).ok_or(other_error())?, &mut count)?;
-        let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error())?, &mut count)?;
+        let name = decrypt_string(&cipher, &b64::base64_decode(name_cipher).ok_or(other_error("decrypt"))?, &mut count)?;
+        let mime = decrypt_string(&cipher, &b64::base64_decode(mime_cipher).ok_or(other_error("decrypt"))?, &mut count)?;
 
         let new = Self {
             reader: FileReader::new(path, start_index, expire_after, is_completed)?,
@@ -380,7 +380,7 @@ where R: Read
         if chunk_size == 0 {
             return Ok(0); // EOF
         } else if chunk_size > MAX_CHUNK_SIZE {
-            return Err(other_error());
+            return Err(other_error("Ciphertext chunk too large"));
         }
 
         buffer.resize(chunk_size, 0);
@@ -400,7 +400,7 @@ where R: Read
 
                 Ok(len)
             },
-            Err(_) => Err(other_error())
+            Err(_) => Err(other_error("decrypt_in_place"))
         }
     } else {
         // If there is remaining decrypted data that has yet to be sent
@@ -420,8 +420,8 @@ impl Read for EncryptedFileReader {
     }
 }
 
-fn other_error() -> Error {
-    Error::from(ErrorKind::Other)
+fn other_error(message: &'static str) -> Error {
+    Error::new(ErrorKind::Other, message)
 }
 
 pub fn delete_upload_dir(storage_dir: &PathBuf, id: i64) {
