@@ -28,7 +28,6 @@ impl Quotas {
     // Return whether or not writing the given amount of bytes would exceed
     // the quota for the given address
     pub fn exceeds_quota(&self, addr: &IpAddr, bytes: usize) -> bool {
-        println!("die");
         let mut quotas = self.quotas.lock().unwrap();
 
         let count = match quotas.get_mut(addr) {
@@ -42,7 +41,6 @@ impl Quotas {
             }
         };
 
-        println!("{} > {}", count, self.max_bytes);
         count > self.max_bytes
     }
 

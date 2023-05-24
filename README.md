@@ -101,7 +101,6 @@ features on which it depends are only available from a secure context.
 Here is a simple NGINX configuration example:
 (replace BACKEND-HOST with the host/port at which Transpo is reachable)
 ```nginx
-real_ip_header X-Real-IP;
 proxy_http_version 1.1;
 
 location / {
@@ -112,6 +111,7 @@ location /upload {
   client_max_body_size 5G;
   proxy_set_header Upgrade $http_upgrade;
   proxy_set_header Connection "upgrade";
+  proxy_set_header X-Real-IP $remote_addr;
 
   proxy_pass http://BACKEND-HOST/upload;
 }
