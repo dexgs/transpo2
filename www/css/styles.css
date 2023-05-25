@@ -36,6 +36,14 @@ form#language-select-form::before {
     content: "🌐";
 }
 
+form#language-select-form select {
+    background-color: var(--ui-bg);
+    border: 1px solid var(--ui-border);
+    padding: 3px 5px;
+    border-radius: 5px;
+    color: var(--text-fg);
+}
+
 a.upload-link {
     font-weight: bold;
     color: #306cd7;
