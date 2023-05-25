@@ -12,6 +12,12 @@ previous project of mine which shares the same name.
   a download limit) after which they will expire and be deleted from the
   server.
 
+- Storage limits. Transpo can be configured to limit its storage capacity as
+  well as to enforce quotas on the amount uploaded from each IP address.
+
+- Pastebin service. In addition to a file upload interface, Transpo also allows
+  plain text files to be uploaded by writing/pasting into a text box.
+
 - Optional server-side processing. In addition to end-to-end encryption,
   Transpo can also perform encryption and decryption on the server. This is
   obviously less secure, but enables you to upload/download files from a
