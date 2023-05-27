@@ -1,0 +1,14 @@
+{% if lang_names.len() > 1 %}
+<form id="language-select-form" class="header-right">
+    <label for="language-select">{{ t.get("language-select") }}</label>
+    <select name="lang" id="language-select">
+        {% for (lang, name) in lang_names %}
+        <option value="{{lang}}" {% if lang == selected_lang %}selected{% endif %}>{{name}}</option>
+        {% endfor %}
+    </select>
+
+    <noscript>
+        <input type="submit"/>
+    </noscript>
+</form>
+{% endif %}

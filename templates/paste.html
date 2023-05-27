@@ -9,6 +9,7 @@
         <header id="header">
             <h1 id="title">{{ t.get("paste/title") }}</h1>
             <a href="../">{{ t.get("main-page") }}</a>
+            {% include "language_select.html" %}
         </header>
         <div id="transpo-main" class="ui-frame">
             <div class="flex-column" style="gap: 10px">
@@ -41,6 +42,7 @@
         <script src="js/upload.js"></script>
         <script src="js/upload_list.js"></script>
         <script src="js/paste_upload.js"></script>
+        <script src="js/translations.js"></script>
 
         <script>
             isPaste = true;

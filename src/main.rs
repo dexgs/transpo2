@@ -142,6 +142,11 @@ fn get_config(conn: &Conn) -> (
     (state.config, state.translations, translation, lang)
 }
 
+fn set_lang_cookie(conn: &mut Conn, lang: &str) {
+    conn.headers_mut()
+        .insert("Set-Cookie", format!("lang={}; Path=.; SameSite=Lax", lang));
+}
+
 fn trillium_main(
     config: Arc<TranspoConfig>,
     translations: Arc<Translations>, db_backend: db::DbBackend)
@@ -167,9 +172,7 @@ fn trillium_main(
     let router = Router::new()
         .get("/", (state(s.clone()), move |mut conn: Conn| { async move {
             let (config, translations, translation, lang) = get_config(&conn);
-
-            conn.headers_mut()
-                .insert("Set-Cookie", format!("lang={}; Path=.; SameSite=Lax", lang));
+            set_lang_cookie(&mut conn, &lang);
 
             let index = IndexTemplate::new(
                 &config,
@@ -179,15 +182,17 @@ fn trillium_main(
 
             conn.render(index).halt()
         }}))
-        .get("/about", (state(s.clone()), move |conn: Conn| { async move {
-            let (config, _, translation, _) = get_config(&conn);
-            let about = AboutTemplate::new(&config, translation);
+        .get("/about", (state(s.clone()), move |mut conn: Conn| { async move {
+            let (config, translations, translation, lang) = get_config(&conn);
+            set_lang_cookie(&mut conn, &lang);
+            let about = AboutTemplate::new(&config, translations.names(), &lang, translation);
 
             conn.render(about).halt()
         }}))
-        .get("/paste", (state(s.clone()), move |conn: Conn| { async move {
-            let (config, _, translation, _) = get_config(&conn);
-            let paste = PasteTemplate::new(&config, translation);
+        .get("/paste", (state(s.clone()), move |mut conn: Conn| { async move {
+            let (config, translations, translation, lang) = get_config(&conn);
+            set_lang_cookie(&mut conn, &lang);
+            let paste = PasteTemplate::new(&config, translations.names(), &lang, translation);
 
             conn.render(paste).halt()
         }}))

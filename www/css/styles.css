@@ -242,6 +242,13 @@ ul#uploaded-list > li > progress {
     -webkit-appearance: none;
     border: 1px solid var(--progress-bar-border);
     border-radius: 2px;
+    animation: fade-in 0.5s backwards;
+    animation-delay: 0.5s;
+}
+
+ul#uploaded-list > li.failed > progress, ul#uploaded-list > li.completed > progress {
+    animation: none;
+    opacity: 0%;
 }
 
 progress::-webkit-progress-bar, progress {
@@ -262,6 +269,8 @@ textarea {
     border: none;
     border-radius: 5px;
     padding: 5px;
+    background: transparent;
+    color: var(--text-fg);
 }
 
 div#about {

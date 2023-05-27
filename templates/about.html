@@ -8,6 +8,7 @@
         <header id="header">
             <h1 id="title">{{ t.get("about/title") }}</h1>
             <a href="../">{{ t.get("main-page") }}</a>
+            {% include "language_select.html" %}
         </header>
         <div id="transpo-main" class="ui-frame flex-column" style="width: 800px">
             {{ t.get("about/about") }}
@@ -17,5 +18,7 @@
             <a href="https://github.com/dexgs/transpo2">{{ t.get("source-code") }}</a> (AGPLv3)
             {{ t.get("copyright-year") }} {{ t.get("copyright") }}
         </footer>
+
+        <script src="js/translations.js"></script>
     </body>
 </html>

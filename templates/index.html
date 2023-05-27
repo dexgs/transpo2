@@ -35,20 +35,7 @@ a[href="paste"] {
             <a href="about">{{ t.get("index/about") }}</a>
             <a href="paste">{{ t.get("index/paste") }}</a>
 
-            {% if lang_names.len() > 1 %}
-            <form id="language-select-form" class="header-right">
-                <label for="language-select">{{ t.get("index/language-select") }}</label>
-                <select name="lang" id="language-select">
-                {% for (lang, name) in lang_names %}
-                    <option value="{{lang}}" {% if lang == selected_lang %}selected{% endif %}>{{name}}</option>
-                {% endfor %}
-                </select>
-
-                <noscript>
-                    <input type="submit"/>
-                </noscript>
-            </form>
-            {% endif %}
+            {% include "language_select.html" %}
         </header>
         <div id="transpo-main" class="ui-frame">
             <form id="upload-form" class="flex-column" action="upload" method="post" enctype="multipart/form-data" autocomplete="off">

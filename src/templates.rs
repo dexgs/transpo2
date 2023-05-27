@@ -65,6 +65,8 @@ impl<'a> IndexTemplate<'a> {
 #[template(path = "paste.html", escape = "none")]
 pub struct PasteTemplate<'a> {
     app_name: &'a String,
+    lang_names: &'a [(String, String)],
+    selected_lang: &'a str,
     max_days: usize,
     max_hours: usize,
     max_minutes: usize,
@@ -73,12 +75,19 @@ pub struct PasteTemplate<'a> {
 }
 
 impl<'a> PasteTemplate<'a> {
-    pub fn new(config: &'a TranspoConfig, translation: Translation) -> Self {
+    pub fn new(
+        config: &'a TranspoConfig,
+        lang_names: &'a [(String, String)],
+        selected_lang: &'a str,
+        translation: Translation) -> Self
+    {
         let app_name = &config.app_name;
         let (max_days, max_hours, max_minutes, max_upload_size) = get_limits(config);
 
         Self {
             app_name,
+            lang_names,
+            selected_lang,
             max_days,
             max_hours,
             max_minutes,
@@ -100,14 +109,23 @@ pub struct UploadLinkTemplate {
 #[derive(Template, Clone)]
 #[template(path = "about.html", escape = "none")]
 pub struct AboutTemplate<'a> {
-    pub app_name: &'a String,
-    pub t: Translation
+    app_name: &'a String,
+    selected_lang: &'a str,
+    lang_names: &'a [(String, String)],
+    t: Translation
 }
 
 impl<'a> AboutTemplate<'a> {
-    pub fn new(config: &'a TranspoConfig, translation: Translation) -> Self {
+    pub fn new(
+        config: &'a TranspoConfig,
+        lang_names: &'a [(String, String)],
+        selected_lang: &'a str,
+        translation: Translation) -> Self
+    {
         Self {
             app_name: &config.app_name,
+            selected_lang,
+            lang_names,
             t: translation
         }
     }

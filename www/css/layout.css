@@ -306,17 +306,9 @@ ul#uploaded-list > li > progress {
     flex-basis: 100%;
 }
 
-ul#uploaded-list > li.failed > progress {
-    opacity: 0%;
-}
-
-ul#uploaded-list > li.completed > progress {
-    opacity: 0%;
-}
-
 textarea {
     min-width: 100%;
-    max-width: calc(100vw - 40px);
+    max-width: 100%;
     box-sizing: border-box;
     height: 50vh;
     max-height: calc(100vh - 40px);
