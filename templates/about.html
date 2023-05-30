@@ -3,6 +3,7 @@
     <head>
         {% include "head.html" %}
         <title>{{ app_name }} | {{ t.get("about/title") }}</title>
+        {% include "nojs_styles.html" %}
     </head>
     <body>
         <header id="header">
@@ -10,7 +11,7 @@
             <a href="../">{{ t.get("main-page") }}</a>
             {% include "language_select.html" %}
         </header>
-        <div id="transpo-main" class="ui-frame flex-column" style="width: 800px">
+        <div id="transpo-main" class="ui-frame flex-column" style="max-width: 800px">
             {{ t.get("about/about") }}
         </div>
 
