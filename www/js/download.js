@@ -13,7 +13,7 @@ function setButtonDisabled(state) {
 
 async function downloadEventHandlerSW(e) {
     e.preventDefault();
-    if (!await setupWorkerAndDownload(false)) {
+    if (!await setupWorkerAndDownload()) {
         console.error("Falling back to non-ServiceWorker download");
         await downloadEventHandlerNoSW(e);
     }
@@ -38,25 +38,21 @@ async function downloadEventHandlerNoSW(e) {
 }
 
 
-async function setupWorker(updateWorker) {
+async function setupWorker() {
     let registration = await navigator.serviceWorker.register("/download_worker.js");
-
-    if (updateWorker) {
-        registration = await registration.update();
-    }
 
     await navigator.serviceWorker.ready;
     navigator.serviceWorker.startMessages();
 }
 
-async function setupWorkerAndDownload(updateWorker) {
+async function setupWorkerAndDownload() {
     try {
-        await setupWorker(updateWorker);
-        await navigator.serviceWorker.getRegistration();
-        navigator.serviceWorker.controller.postMessage(appName);
+        await setupWorker();
+        let registration = await navigator.serviceWorker.getRegistration();
+        registration.active.postMessage(appName);
 
         // Keep the service worker alive
-        pokeWorker();
+        pokeWorker(registration.active);
     } catch (error) {
         console.error(error);
         return false;
@@ -75,9 +71,9 @@ async function setupWorkerAndDownload(updateWorker) {
 // It seems like this resets whatever mechanism Firefox uses to track
 // "inactive" workers, which stops it from killing the worker while a download
 // is in progress.
-function pokeWorker() {
-    navigator.serviceWorker.controller.postMessage(new ArrayBuffer(0));
-    setTimeout(pokeWorker, 5_000);
+function pokeWorker(active) {
+    active.postMessage(new ArrayBuffer(0));
+    setTimeout(() => { pokeWorker(active); }, 5_000);
 }
 
 
