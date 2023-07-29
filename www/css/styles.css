@@ -11,7 +11,7 @@ h1#title::before {
     display: block;
     width: 200px;
     height: 200px;
-    background-image: url("../res/pigeon.png");
+    background-image: url("../res/pigeon.svg");
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
