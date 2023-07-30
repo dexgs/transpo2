@@ -7,32 +7,9 @@
    width="882.66669"
    height="1297.3333"
    viewBox="0 0 882.66669 1297.3333"
-   sodipodi:docname="pigeon.svg"
-   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
-  <sodipodi:namedview
-     id="namedview783"
-     pagecolor="#ffffff"
-     bordercolor="#666666"
-     borderopacity="1.0"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     showgrid="false"
-     inkscape:zoom="0.46601465"
-     inkscape:cx="-36.47954"
-     inkscape:cy="509.64063"
-     inkscape:window-width="1914"
-     inkscape:window-height="1057"
-     inkscape:window-x="900"
-     inkscape:window-y="17"
-     inkscape:window-maximized="0"
-     inkscape:current-layer="svg880" />
   <defs
      id="defs884">
     <linearGradient
@@ -498,8 +475,7 @@
   <path
      id="path4951"
      style="display:inline;fill:none;fill-opacity:0.957211;stroke:#225553;stroke-width:13.6063;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:377.953;stroke-opacity:1;paint-order:markers fill stroke"
-     d="m 471.59436,510.89554 c -17.26522,-29.0622 -34.70973,-33.98631 -63.7622,-33.97612"
-     sodipodi:nodetypes="cc" />
+     d="m 471.59436,510.89554 c -17.26522,-29.0622 -34.70973,-33.98631 -63.7622,-33.97612" />
   <ellipse
      style="display:inline;fill:none;fill-opacity:1;stroke:url(#linearGradient25095);stroke-width:10.9606;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:377.953;stroke-opacity:1;paint-order:markers fill stroke"
      id="path4493"
