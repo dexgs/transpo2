@@ -244,6 +244,8 @@ input[type="number"]#days-input {
 
 button#upload-button, button#download-button {
     width: 100%;
+    max-width: 60vw;
+    align-self: center;
 }
 
 
