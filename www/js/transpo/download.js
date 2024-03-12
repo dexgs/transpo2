@@ -53,14 +53,13 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
     while (bytesRead < buffer.byteLength) {
         const remainingSegment = state.segment.byteLength - state.segmentWriteStart;
         const remainingBuffer = buffer.byteLength - bytesRead;
-        const iterLen = Math.min(remainingSegment, remainingBuffer);
+        const copyLen = Math.min(remainingSegment, remainingBuffer);
 
-        for (let i = 0; i < iterLen; i++) {
-            state.segment[state.segmentWriteStart + i] = buffer[bytesRead + i];
-        }
-
-        state.segmentWriteStart += iterLen;
-        bytesRead += iterLen;
+        state.segment.set(
+            buffer.slice(bytesRead, bytesRead + copyLen),
+            state.segmentWriteStart);
+        state.segmentWriteStart += copyLen;
+        bytesRead += copyLen;
 
         while (state.segmentWriteStart >= 2) {
             const segmentSize = state.segment[0] * 256 + state.segment[1];
@@ -85,10 +84,7 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
                 chunksEnqueued++;
 
                 const segmentEnd = segmentSize + 2;
-                const leftover = state.segmentWriteStart - segmentEnd;
-                for (let i = 0; i < leftover; i++) {
-                    state.segment[i] = state.segment[segmentEnd + i];
-                }
+                state.segment.copyWithin(0, segmentEnd, state.segmentWriteStart);
                 state.segmentWriteStart -= segmentEnd;
             } else {
                 break;
