@@ -57,6 +57,13 @@ async function encryptStream(files, key) {
     });
 }
 
+// Given a socket, and the "expected" buffered amount, which is how much data
+// we expect to be waiting to be sent through the socket, compute how much
+// progress has been made and return the new "expected" buffered amount
+//
+// The progress is the difference between the expected buffered amount and the
+// actual buffered amount for the socket, i.e. the number of bytes which have
+// been sent since the last check.
 function updateProgress(socket, expectedBufferedAmount, id, obj, progressCallback) {
     let actualBufferedAmount = socket.bufferedAmount;
     let progress = expectedBufferedAmount - actualBufferedAmount;
@@ -104,12 +111,11 @@ async function readToSocket(
             socket, expectedBufferedAmount, id, obj, progressCallback);
     }
 
-    progressTracker.uploadSucceeded = true;
-
     if (
         socket.readyState != WebSocket.CLOSING
         && socket.readyState != WebSocket.CLOSED)
     {
+        progressTracker.uploadSucceeded = true;
         socket.close();
     }
 }
