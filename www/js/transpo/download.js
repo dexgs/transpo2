@@ -41,7 +41,8 @@ function generateFileName(uploadID, mime) {
 // - `segment` buffer into which ciphertext is written
 // - `segmentWriteStart` index into segment where next read should be inserted
 // - `count` number of decryptions so far
-// Returns whether or not the full download has been decrypted
+// - `isFinished` whether or not the download is finished
+// Returns the number of chunks enqueued
 async function decryptBufferAndEnqueue(buffer, controller, key, state) {
     const EMPTY = new Uint8Array(0);
 
@@ -70,13 +71,12 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
                 } else {
                     controller.terminate();
                 }
-                return true;
+                state.isFinished = true;
+                break;
             } else if (state.segmentSize > maxCiphertextSegmentSize) {
                 controller.error(new Error("Invalid segment size"));
-                return false;
-            }
-
-            if (state.segmentWriteStart >= segmentSize + 2) {
+                break;
+            } else if (state.segmentWriteStart >= segmentSize + 2) {
                 const segmentCiphertext = state.segment.subarray(2, segmentSize + 2);
                 const segmentPlaintext = await decrypt(key, state.count, segmentCiphertext);
                 state.count++;
@@ -92,15 +92,7 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
         }
     }
 
-    // Every call to pull is expected to enqueue something, so if we
-    // didn't decrypt any chunks this call, just enqueue the empty
-    // array as this will satisfy the caller without actually messing
-    // up the downloaded file.
-    if (chunksEnqueued == 0) {
-        controller.enqueue(EMPTY);
-    }
-
-    return false;
+    return chunksEnqueued;
 }
 
 async function decryptedStream(r, key) {
@@ -112,7 +104,8 @@ async function decryptedStream(r, key) {
     let state = {
         'segment': segment,
         'segmentWriteStart': segmentWriteStart,
-        'count': count
+        'count': count,
+        'isFinished': false
     };
 
     let stream;
@@ -126,29 +119,28 @@ async function decryptedStream(r, key) {
                 if (done) {
                     controller.error(new Error("Download failed"));
                 } else {
-                    if (await decryptBufferAndEnqueue(value, controller, key, state)) {
+                    // `pull` is expected to enqueue _something_, so loop until
+                    // the download finishes, or we enqueue a non-zero number
+                    // of chunks
+                    while (!state.isFinished && await decryptBufferAndEnqueue(value, controller, key, state) == 0) {}
+
+                    if (state.isFinished) {
                         controller.close();
                     }
                 }
             }
         });
     } else {
-        let finished = false;
-
         stream = r.body.pipeThrough(new TransformStream({
             async transform(buffer, controller) {
-                finished = await decryptBufferAndEnqueue(buffer, controller, key, state);
+                await decryptBufferAndEnqueue(buffer, controller, key, state);
             },
 
             async flush(controller) {
-                if (!finished) {
+                if (!state.isFinished) {
                     controller.error(new Error("Download failed"));
                 }
             }
-        }, {
-            highWaterMark: 1
-        }, {
-            highWaterMark: 1
         }));
     }
 
