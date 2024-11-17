@@ -17,7 +17,8 @@ impl Accessor {
     // possessed by this instance
     pub fn is_only_accessor(&self) -> bool {
         let db_connection = establish_connection_info(&self.db_connection_info);
-        self.rc == 1 && Upload::num_accessors(&db_connection, self.id) == Some(1)
+        let db_accessors = Upload::num_accessors(&db_connection, self.id);
+        self.rc == 1 && (db_accessors == Some(1) || db_accessors.is_none())
     }
 }
 
@@ -39,8 +40,7 @@ impl Drop for AccessorMutex {
 
         let db_connection = establish_connection_info(
             &accessor.db_connection_info);
-        Upload::revoke(&db_connection, accessor.id)
-            .expect("Revoking access in DB");
+        Upload::revoke(&db_connection, accessor.id);
 
         accessor.rc -= 1;
         if accessor.rc == 0 {
