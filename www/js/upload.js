@@ -7,7 +7,7 @@ function cancelUpload(uploadNum) {
     const socket = sockets[uploadNum];
 
     if (typeof socket !== typeof undefined) {
-        socket.close(1001);
+        socket.close(3000);
     }
 
     delete sockets[uploadNum];
