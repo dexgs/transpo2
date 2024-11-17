@@ -60,8 +60,7 @@ impl Accessors {
 
     pub fn access(&self, id: i64, db_connection_info: DbConnectionInfo) -> AccessorMutex {
         let db_connection = establish_connection_info(&db_connection_info);
-        Upload::access(&db_connection, id)
-            .expect("Gaining access in DB");
+        Upload::access(&db_connection, id);
 
         let mut map = self.0.lock().unwrap();
 
