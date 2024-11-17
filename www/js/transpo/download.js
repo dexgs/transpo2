@@ -134,12 +134,6 @@ async function decryptedStream(r, key) {
         stream = r.body.pipeThrough(new TransformStream({
             async transform(buffer, controller) {
                 await decryptBufferAndEnqueue(buffer, controller, key, state);
-            },
-
-            async flush(controller) {
-                if (!state.isFinished) {
-                    controller.error(new Error("Download failed"));
-                }
             }
         }));
     }
