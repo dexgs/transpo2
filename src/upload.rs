@@ -18,7 +18,7 @@ use std::time;
 use rand::{thread_rng, Rng};
 
 use trillium::Conn;
-use trillium_websockets::{WebSocketConn, Message};
+use trillium_websockets::{WebSocketConn, Message, tungstenite::protocol::frame::coding::CloseCode};
 use trillium_askama::AskamaConnExt;
 
 use smol::prelude::*;
@@ -68,6 +68,7 @@ enum UploadError {
     Quota = 2,
     Storage = 3,
     Protocol = 4,
+    Cancelled = 5,
 
     Other = 0
 }
@@ -455,9 +456,13 @@ async fn websocket_read_loop(
                     }
                 }
             },
-            Message::Close(_) => {
-                writer.flush().await?;
-                return Ok(());
+            Message::Close(Some(closeframe)) => {
+                if closeframe.code == CloseCode::Normal {
+                    writer.flush().await?;
+                    return Ok(());
+                } else {
+                    return Err(UploadError::Cancelled);
+                }
             },
             _ => {
                 drop(conn.close().await);
