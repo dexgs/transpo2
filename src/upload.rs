@@ -596,6 +596,8 @@ pub async fn handle_post(
                 .halt()
         }
     } else {
+        let response = error_400(conn, config.clone(), translation);
+
         unblock(move || {
             if upload_dir.exists() {
                 let db_connection = establish_connection(db_backend, &config.db_url);
@@ -605,7 +607,7 @@ pub async fn handle_post(
             }
         }).await;
 
-        error_400(conn, config, translation)
+        response
     }
 }
 
