@@ -30,7 +30,6 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use std::net::IpAddr;
-use smol_macros::{main, Executor};
 use trillium::{Conn, Headers, state};
 use trillium_websockets::{WebSocketConn, WebSocketConfig, websocket};
 use trillium_router::{Router, RouterConnExt};
@@ -58,41 +57,39 @@ struct TranspoState {
     quotas: Option<Quotas>
 }
 
-main! {
-    async fn main(ex: &Executor<'_>) {
-        let mut config = TranspoConfig::default();
-        config.parse_vars(env::vars());
-        config.parse_args(env::args());
+fn main() {
+    let mut config = TranspoConfig::default();
+    config.parse_vars(env::vars());
+    config.parse_args(env::args());
 
-        if !config.quiet {
-            println!("Running with: {:#?}", &config);
-        }
+    if !config.quiet {
+        println!("Running with: {:#?}", &config);
+    }
 
-        let translations = translations::Translations::new(
-            &config.translations_dir,
-            &config.default_lang)
-            .expect("Loading translations");
+    let translations = translations::Translations::new(
+        &config.translations_dir,
+        &config.default_lang)
+        .expect("Loading translations");
 
-        fs::create_dir_all(&config.storage_dir)
-            .expect("Creating storage directory");
+    fs::create_dir_all(&config.storage_dir)
+        .expect("Creating storage directory");
 
-        if let Some(db_backend) = db::parse_db_backend(&config.db_url) {
-            let db_connection = db::establish_connection(db_backend, &config.db_url);
-            db::run_migrations(&db_connection, &config.migrations_dir);
+    if let Some(db_backend) = db::parse_db_backend(&config.db_url) {
+        let db_connection = db::establish_connection(db_backend, &config.db_url);
+        db::run_migrations(&db_connection, &config.migrations_dir);
 
-            let config = Arc::new(config);
-            let translations = Arc::new(translations);
+        let config = Arc::new(config);
+        let translations = Arc::new(translations);
 
-            spawn_cleanup_thread(
-                config.read_timeout_milliseconds,
-                config.storage_dir.to_owned(),
-                db_backend, config.db_url.to_owned());
+        spawn_cleanup_thread(
+            config.read_timeout_milliseconds,
+            config.storage_dir.to_owned(),
+            db_backend, config.db_url.to_owned());
 
-            ex.spawn(trillium_main(config, translations, db_backend)).await;
-        } else {
-            eprintln!("A database connection is required!");
-            std::process::exit(1);
-        }
+        trillium_main(config, translations, db_backend);
+    } else {
+        eprintln!("A database connection is required!");
+        std::process::exit(1);
     }
 }
 
@@ -150,7 +147,7 @@ fn set_lang_cookie(conn: &mut Conn, lang: &str) {
         .insert("Set-Cookie", format!("lang={}; Path=.; SameSite=Lax", lang));
 }
 
-async fn trillium_main(
+fn trillium_main(
     config: Arc<TranspoConfig>,
     translations: Arc<Translations>, db_backend: db::DbBackend)
 {
@@ -281,8 +278,8 @@ async fn trillium_main(
             http_errors::error_404(conn, config, translation)
         }}));
 
-    trillium_smol::config()
+    trillium_tokio::config()
         .with_host("0.0.0.0")
         .with_port(config.port as u16)
-        .run_async(router).await;
+        .run(router);
 }
