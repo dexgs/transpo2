@@ -14,18 +14,13 @@ use std::sync::Arc;
 use blocking::*;
 use trillium::{Conn, Body};
 
-use smol::prelude::AsyncRead;
-use std::pin::Pin;
-use smol::pin;
-use std::task::{Poll, Context};
-
 use urlencoding::{decode, encode};
 
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 
 
 struct Reader<R>
-{
+where R: Read {
     reader: R,
     accessor_mutex: AccessorMutex,
     db_backend: DbBackend,
@@ -33,6 +28,7 @@ struct Reader<R>
 }
 
 impl<R> Reader<R>
+where R: Read
 {
     fn cleanup(&mut self) {
         let accessor = self.accessor_mutex.lock();
@@ -54,7 +50,8 @@ impl<R> Reader<R>
     }
 }
 
-impl<R> Drop for Reader<R>
+impl<R> Drop for Reader<R> 
+where R: Read
 {
     fn drop(&mut self) {
         self.cleanup();
@@ -67,45 +64,6 @@ where R: Read {
         self.reader.read(buf)
     }
 }
-
-struct AsyncReader<R> {
-    reader: Unblock<R>,
-    should_yield: bool
-}
-
-impl<R> AsyncReader<R>
-where R: Read
-{
-    fn new(reader: R) -> Self {
-        Self {
-            reader: Unblock::with_capacity(FORM_READ_BUFFER_SIZE, reader),
-            should_yield: false
-        }
-    }
-}
-
-impl<R> AsyncRead for AsyncReader<R>
-where R: Read + Send + 'static
-{
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8])
-        -> Poll<Result<usize>>
-    {
-        if self.should_yield {
-            self.should_yield = false;
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            let r = &mut self.reader;
-            pin!(r);
-            let result = r.poll_read(cx, buf);
-            if result.is_ready() {
-                self.should_yield = true;
-            }
-            result
-        }
-    }
-}
-
 
 #[derive(Default)]
 struct DownloadQuery {
@@ -333,5 +291,5 @@ where R: Read + Sync + Send + 'static
         config
     };
 
-    Body::new_streaming(AsyncReader::new(reader), None)
+    Body::new_streaming(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, reader), None)
 }

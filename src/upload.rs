@@ -24,7 +24,6 @@ use trillium_askama::AskamaConnExt;
 
 use smol::prelude::*;
 use smol::io::{AsyncReadExt};
-use smol::future::yield_now;
 
 use blocking::{unblock, Unblock};
 
@@ -424,8 +423,6 @@ async fn websocket_read_loop(
         .timeout(timeout_duration).await
         .flatten()
     {
-        yield_now().await;
-
         match msg {
             Message::Binary(b) => {
                 if let Some(true) = quotas_data.as_ref().map(
@@ -646,8 +643,6 @@ where R: AsyncReadExt + Unpin
         .read(&mut buf[read_start..])
         .timeout(timeout_duration).await
     {
-        yield_now().await;
-
         if bytes_read == 0 {
             break 'outer;
         }
