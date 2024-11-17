@@ -278,8 +278,10 @@ fn trillium_main(
             http_errors::error_404(conn, config, translation)
         }}));
 
-    trillium_smol::config()
-        .with_host("0.0.0.0")
-        .with_port(config.port as u16)
-        .run(router);
+    smol::block_on(async {
+        trillium_smol::config()
+            .with_host("0.0.0.0")
+            .with_port(config.port as u16)
+            .run_async(router).await;
+    });
 }
