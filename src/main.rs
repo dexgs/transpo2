@@ -30,6 +30,7 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use std::net::IpAddr;
+use trillium_tokio::tokio::runtime::Runtime;
 use trillium::{Conn, Headers, state};
 use trillium_websockets::{WebSocketConn, WebSocketConfig, websocket};
 use trillium_router::{Router, RouterConnExt};
@@ -278,8 +279,9 @@ fn trillium_main(
             http_errors::error_404(conn, config, translation)
         }}));
 
-    trillium_tokio::config()
+    let rt  = Runtime::new().expect("Starting async runtime");
+    rt.block_on(trillium_tokio::config()
         .with_host("0.0.0.0")
         .with_port(config.port as u16)
-        .run(router);
+        .run_async(router));
 }
