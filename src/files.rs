@@ -424,16 +424,6 @@ fn other_error(message: &'static str) -> Error {
     Error::new(ErrorKind::Other, message)
 }
 
-pub fn delete_upload_dir(storage_dir: &PathBuf, id: i64) {
-    let id_string = String::from_utf8(b64::i64_to_b64_bytes(id)).unwrap();
-    let upload_path = storage_dir.join(id_string);
-    if upload_path.exists() {
-        if let Err(e) = std::fs::remove_dir_all(upload_path) {
-            eprintln!("{}", e);
-        }
-    }
-}
-
 pub fn get_file_size<P>(file_path: P) -> Result<u64>
 where P: AsRef<Path>
 {

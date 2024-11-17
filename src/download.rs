@@ -6,6 +6,7 @@ use crate::config::*;
 use crate::files::*;
 use crate::http_errors::*;
 use crate::translations::*;
+use crate::cleanup::delete_upload;
 
 use std::io::{Read, Result};
 use std::sync::Arc;
@@ -43,10 +44,7 @@ where R: Read
             };
 
             if should_delete {
-                // Note: ID generation avoids collisions by checking the
-                // filesystem, so we remove the upload directory last.
-                Upload::delete_with_id(accessor.id, &db_connection);
-                delete_upload_dir(&self.config.storage_dir, accessor.id);
+                delete_upload(accessor.id, &self.config.storage_dir, &db_connection);
             }
         }
     }
@@ -112,8 +110,7 @@ fn get_upload(
     // If the row is expired and we are the only accessor, clean it up!
     let upload = if row.is_expired() {
         if accessor.is_only_accessor() {
-            Upload::delete_with_id(accessor.id, &db_connection);
-            delete_upload_dir(&config.storage_dir, accessor.id);
+            delete_upload(accessor.id, &config.storage_dir, &db_connection);
         }
         None
     } else {

@@ -8,6 +8,7 @@ use crate::http_errors::*;
 use crate::templates::*;
 use crate::translations::*;
 use crate::quotas::*;
+use crate::cleanup::delete_upload;
 
 use std::{cmp, fs, str};
 use std::io::{Result, Error, ErrorKind};
@@ -23,6 +24,7 @@ use trillium_askama::AskamaConnExt;
 
 use smol::prelude::*;
 use smol::io::{AsyncReadExt};
+use smol::future::yield_now;
 
 use blocking::{unblock, Unblock};
 
@@ -395,12 +397,8 @@ pub async fn handle_websocket(
 
 
         unblock(move || {
-            if upload_dir.exists() {
-                let db_connection = establish_connection(db_backend, &config.db_url);
-                Upload::delete_with_id(upload_id, &db_connection);
-                std::fs::remove_dir_all(upload_dir)
-                    .expect("Deleting failed upload");
-            }
+            let db_connection = establish_connection(db_backend, &config.db_url);
+            delete_upload(upload_id, &config.storage_dir, &db_connection);
         }).await;
     }
 
@@ -426,6 +424,8 @@ async fn websocket_read_loop(
         .timeout(timeout_duration).await
         .flatten()
     {
+        yield_now().await;
+
         match msg {
             Message::Binary(b) => {
                 if let Some(true) = quotas_data.as_ref().map(
@@ -599,12 +599,8 @@ pub async fn handle_post(
         let response = error_400(conn, config.clone(), translation);
 
         unblock(move || {
-            if upload_dir.exists() {
-                let db_connection = establish_connection(db_backend, &config.db_url);
-                Upload::delete_with_id(upload_id, &db_connection);
-                std::fs::remove_dir_all(upload_dir)
-                    .expect("Deleting failed upload");
-            }
+            let db_connection = establish_connection(db_backend, &config.db_url);
+            delete_upload(upload_id, &config.storage_dir, &db_connection);
         }).await;
 
         response
@@ -650,6 +646,8 @@ where R: AsyncReadExt + Unpin
         .read(&mut buf[read_start..])
         .timeout(timeout_duration).await
     {
+        yield_now().await;
+
         if bytes_read == 0 {
             break 'outer;
         }

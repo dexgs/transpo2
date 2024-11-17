@@ -1,9 +1,8 @@
 use crate::db::*;
-use crate::files::*;
 use crate::b64::*;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
 const CLEANUP_DELAY_SECS: u64 = 60 * 60;
 
@@ -12,6 +11,20 @@ pub fn spawn_cleanup_thread(
     db_backend: DbBackend, db_url: String)
 {
     thread::spawn(move || cleanup_thread(read_timeout_ms, storage_path, db_backend, db_url));
+}
+
+pub fn delete_upload<P>(id: i64, storage_path: P, db_connection: &DbConnection)
+where P: AsRef<Path> {
+    let id_string = String::from_utf8(i64_to_b64_bytes(id)).unwrap();
+    let upload_path = storage_path.as_ref().join(id_string);
+    if upload_path.exists() {
+        // Note: ID generation avoids collisions by checking the
+        // filesystem, so we remove the upload directory last.
+        Upload::delete_with_id(id, &db_connection);
+        if let Err(e) = std::fs::remove_dir_all(&upload_path) {
+            eprintln!("Error deleting {:?}: {}", upload_path, e);
+        }
+    }
 }
 
 fn cleanup_thread(
@@ -35,8 +48,7 @@ fn cleanup(
 
     if let Some(expired_upload_ids) = Upload::select_expired(&db_connection) {
         for id in expired_upload_ids {
-            Upload::delete_with_id(id, &db_connection);
-            delete_upload_dir(&storage_path, id);
+            delete_upload(id, &storage_path, &db_connection);
         }
     }
 
@@ -65,7 +77,7 @@ fn cleanup(
                         if age_millis as usize > write_deadline
                             && Upload::select_with_id(id, &db_connection).is_none()
                         {
-                            delete_upload_dir(&storage_path, id);
+                            delete_upload(id, &storage_path, &db_connection);
                         }
                     }
                 }
