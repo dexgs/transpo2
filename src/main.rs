@@ -30,7 +30,7 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use std::net::IpAddr;
-use smol_macros::main;
+use smol_macros::{main, Executor};
 use trillium::{Conn, Headers, state};
 use trillium_websockets::{WebSocketConn, WebSocketConfig, websocket};
 use trillium_router::{Router, RouterConnExt};
@@ -59,7 +59,7 @@ struct TranspoState {
 }
 
 main! {
-    async fn main() {
+    async fn main(ex: &Executor<'_>) {
         let mut config = TranspoConfig::default();
         config.parse_vars(env::vars());
         config.parse_args(env::args());
@@ -88,7 +88,7 @@ main! {
                 config.storage_dir.to_owned(),
                 db_backend, config.db_url.to_owned());
 
-            trillium_main(config, translations, db_backend).await;
+            ex.spawn(trillium_main(config, translations, db_backend)).await;
         } else {
             eprintln!("A database connection is required!");
             std::process::exit(1);
