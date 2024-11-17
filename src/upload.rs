@@ -598,6 +598,8 @@ pub async fn handle_post(
     } else {
         unblock(move || {
             if upload_dir.exists() {
+                let db_connection = establish_connection(db_backend, &config.db_url);
+                Upload::delete_with_id(upload_id, &db_connection);
                 std::fs::remove_dir_all(upload_dir)
                     .expect("Deleting failed upload");
             }
