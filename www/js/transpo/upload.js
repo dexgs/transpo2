@@ -116,7 +116,7 @@ async function readToSocket(
         && socket.readyState != WebSocket.CLOSED)
     {
         progressTracker.uploadSucceeded = true;
-        socket.close();
+        socket.close(1000);
     }
 }
 
