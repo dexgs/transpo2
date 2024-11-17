@@ -279,7 +279,9 @@ fn trillium_main(
             http_errors::error_404(conn, config, translation)
         }}));
 
-    let rt  = Builder::new_multi_thread().build().expect("Starting async runtime");
+    let rt  = Builder::new_multi_thread()
+        .enable_all()
+        .build().expect("Starting async runtime");
     rt.block_on(trillium_tokio::config()
         .with_host("0.0.0.0")
         .with_port(config.port as u16)
