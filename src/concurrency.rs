@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::collections::HashMap;
-use crate::db::*;
 
 
 // Count the number of concurrent accessors to files to make sure that they
@@ -9,16 +8,13 @@ use crate::db::*;
 pub struct Accessor {
     pub id: i64,
     rc: usize,
-    db_connection_info: DbConnectionInfo
 }
 
 impl Accessor {
     // Return whether or not there are other accessors on the same ID as is
     // possessed by this instance
     pub fn is_only_accessor(&self) -> bool {
-        let db_connection = establish_connection_info(&self.db_connection_info);
-        let db_accessors = Upload::num_accessors(&db_connection, self.id);
-        self.rc == 1 && (db_accessors == Some(1) || db_accessors.is_none())
+        self.rc == 1
     }
 }
 
@@ -38,10 +34,6 @@ impl Drop for AccessorMutex {
         let mut map = self.parent.0.lock().unwrap();
         let mut accessor = self.lock();
 
-        let db_connection = establish_connection_info(
-            &accessor.db_connection_info);
-        Upload::revoke(&db_connection, accessor.id);
-
         accessor.rc -= 1;
         if accessor.rc == 0 {
             map.remove(&accessor.id);
@@ -58,10 +50,7 @@ impl Accessors {
         Self (Arc::new(Mutex::new(HashMap::new())))
     }
 
-    pub fn access(&self, id: i64, db_connection_info: DbConnectionInfo) -> AccessorMutex {
-        let db_connection = establish_connection_info(&db_connection_info);
-        Upload::access(&db_connection, id);
-
+    pub fn access(&self, id: i64) -> AccessorMutex {
         let mut map = self.0.lock().unwrap();
 
         // Get the existing mutex, or create it if it does not exist (or is poisoned)
@@ -76,8 +65,7 @@ impl Accessors {
                         // Handle a poisoned lock...
                         let accessor = Accessor {
                             id,
-                            rc: 1,
-                            db_connection_info
+                            rc: 1
                         };
                         let accessor_mutex = Arc::new(Mutex::new(accessor));
                         accessor_mutex
@@ -87,8 +75,7 @@ impl Accessors {
             None => {
                 let accessor = Accessor {
                     id,
-                    rc: 1,
-                    db_connection_info
+                    rc: 1
                 };
                 let accessor_mutex = Arc::new(Mutex::new(accessor));
                 accessor_mutex

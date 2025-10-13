@@ -1019,7 +1019,6 @@ async fn write_to_db(
         mime_type: mime_type,
         password_hash: password_hash,
         remaining_downloads: remaining_downloads,
-        num_accessors: 0,
         expire_after: expire_after,
         is_completed: false
     };

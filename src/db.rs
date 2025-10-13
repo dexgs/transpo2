@@ -56,8 +56,6 @@ pub struct Upload {
     pub password_hash: Option<Vec<u8>>,
     // number of remaining downloads (if download limit is enabled)
     pub remaining_downloads: Option<i32>,
-    // number of concurrent operations currently accessing this upload
-    pub num_accessors: i32,
     // deadline after which the upload expires
     pub expire_after: NaiveDateTime,
     // whether or not the upload has fully completed
@@ -72,7 +70,6 @@ table! {
         mime_type -> Text,
         password_hash -> Nullable<Binary>,
         remaining_downloads -> Nullable<Integer>,
-        num_accessors -> Integer,
         expire_after -> Timestamp,
         is_completed -> Bool,
     }
@@ -165,34 +162,6 @@ impl Upload {
 
         conn!(db_connection, |c| select.load::<i64>(c)).ok()
     }
-
-    // Increment the accessor count
-    pub fn access(db_connection: &DbConnection, id: i64) -> Option<usize> {
-        let target = uploads::table
-            .filter(uploads::id.eq(id));
-        let update = diesel::update(target)
-            .set(uploads::num_accessors.eq(uploads::num_accessors + 1));
-
-        conn!(db_connection, |c| update.execute(c)).ok()
-    }
-
-    // Decrement the accessor count
-    pub fn revoke(db_connection: &DbConnection, id: i64) -> Option<usize> {
-        let target = uploads::table
-            .filter(uploads::dsl::id.eq(id));
-        let update = diesel::update(target)
-            .set(uploads::dsl::num_accessors.eq(uploads::dsl::num_accessors - 1));
-
-        conn!(db_connection, |c| update.execute(c)).ok()
-    }
-
-    pub fn num_accessors(db_connection: &DbConnection, id: i64) -> Option<i32> {
-        let select = uploads::table
-            .filter(uploads::dsl::id.eq(id))
-            .select(uploads::dsl::num_accessors);
-
-        conn!(db_connection, |c| select.load::<i32>(c)).ok()?.pop()
-    }
 }
 
 
@@ -268,10 +237,4 @@ pub fn establish_connection(db_backend: DbBackend, db_url: &str) -> DbConnection
             DbConnection::Sqlite(connection)
         }
     }
-}
-
-pub type DbConnectionInfo = (DbBackend, String);
-
-pub fn establish_connection_info(db_connection_info: &DbConnectionInfo) -> DbConnection {
-    establish_connection(db_connection_info.0, &db_connection_info.1)
 }

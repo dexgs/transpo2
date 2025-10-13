@@ -98,11 +98,10 @@ fn parse_query(query: &str) -> DownloadQuery {
 }
 
 fn get_upload(
-    id: i64, config: &TranspoConfig,
-    accessors: &Accessors, db_backend: DbBackend,
+    id: i64, config: &TranspoConfig, accessors: &Accessors,
     db_connection: &DbConnection) -> Option<Upload>
 {
-    let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
+    let accessor_mutex = accessors.access(id);
     let accessor = accessor_mutex.lock();
 
     let row = Upload::select_with_id(id, &db_connection)?;
@@ -156,7 +155,7 @@ pub async fn info(
     let config_ = config.clone();
     let info = unblock(move || {
         let db_connection = establish_connection(db_backend, &config_.db_url);
-        let upload = get_upload(id, &config_, &accessors, db_backend, &db_connection)?;
+        let upload = get_upload(id, &config_, &accessors, &db_connection)?;
         let upload_path = config_.storage_dir.join(&id_string).join("upload");
         let ciphertext_size = if upload.is_completed {
             get_file_size(&upload_path).ok()?
@@ -211,14 +210,14 @@ pub async fn handle(
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
 
-            let upload = get_upload(id, &config, &accessors, db_backend, &db_connection)?;
+            let upload = get_upload(id, &config, &accessors, &db_connection)?;
 
             // validate password
             if !check_password(&password, &upload) {
                 return None;
             }
 
-            let accessor_mutex = accessors.access(id, (db_backend, config.db_url.to_owned()));
+            let accessor_mutex = accessors.access(id);
             Upload::decrement_remaining_downloads(id, &db_connection)?;
 
             let upload_path = config.storage_dir.join(&id_string).join("upload");
