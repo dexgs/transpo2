@@ -1,18 +1,22 @@
-use std::io::{
-    Result, Error, ErrorKind, BufWriter, Write,
-    Read, BufReader, Seek, SeekFrom};
-use std::path::{PathBuf, Path};
-use std::fs::{File, OpenOptions};
-use std::str;
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use crate::b64;
 use crate::random_bytes::*;
 use crate::constants::*;
+
+use std::io::{
+    Result, Error, ErrorKind, BufWriter, Write,
+    Read, BufReader, Seek, SeekFrom};
+use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::*;
-use std::time::Duration;
 use std::cmp;
+use std::fs::{File, OpenOptions};
+use std::path::{PathBuf, Path};
+use std::pin::{pin, Pin};
+use std::str;
+use std::task::{Poll, Context};
+use std::time::Duration;
 use streaming_zip::*;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncSeekExt};
 
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 
@@ -64,6 +68,57 @@ impl Write for FileWriter {
 
     fn flush(&mut self) -> Result<()> {
         self.writer.flush()
+    }
+}
+
+
+pub struct AsyncFileWriter {
+    writer: tokio::io::BufWriter<tokio::fs::File>,
+    max_upload_size: usize,
+    bytes_written: usize
+}
+
+impl AsyncFileWriter {
+    pub async fn new<P>(path: P, max_upload_size: usize) -> Result<Self>
+    where P: AsRef<Path> {
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path).await?;
+
+        Ok(Self {
+            writer: tokio::io::BufWriter::new(file),
+            max_upload_size,
+            bytes_written: 0
+        })
+    }
+}
+
+impl AsyncWrite for AsyncFileWriter {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
+        -> Poll<Result<usize>>
+    {
+        self.bytes_written += buf.len();
+        if self.bytes_written > self.max_upload_size {
+            return Poll::Ready(Err(other_error("Maximum upload size exceeded")));
+        }
+
+        let pinned = pin!(&mut self.as_mut().writer);
+        pinned.poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+        -> Poll<Result<()>>
+    {
+        let pinned = pin!(&mut self.as_mut().writer);
+        pinned.poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+        -> Poll<Result<()>>
+    {
+        let pinned = pin!(&mut self.as_mut().writer);
+        pinned.poll_shutdown(cx)
     }
 }
 
@@ -283,6 +338,77 @@ impl Read for FileReader {
             } else {
                 Ok(bytes_read)
             }
+        }
+    }
+}
+
+
+pub struct AsyncFileReader {
+    reader: tokio::io::BufReader<tokio::fs::File>,
+    expire_after: NaiveDateTime,
+    last_read_time: NaiveDateTime,
+    is_completed: bool
+}
+
+impl AsyncFileReader {
+    pub async fn new<P>(
+        path: P, start_index: u64, expire_after: NaiveDateTime,
+        is_completed: bool) -> Result<Self>
+        where P: AsRef<Path>
+    {
+        let mut file = tokio::fs::File::open(path).await?;
+        file.seek(SeekFrom::Start(start_index)).await?;
+
+        Ok(Self {
+            reader: tokio::io::BufReader::new(file),
+            expire_after,
+            last_read_time: Local::now().naive_utc(),
+            is_completed
+        })
+    }
+}
+
+impl AsyncRead for AsyncFileReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
+        -> Poll<Result<()>>
+    {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+
+        let now = Local::now().naive_utc();
+        if now > self.expire_after {
+            return Poll::Ready(Err(Error::new(ErrorKind::Other, "Upload expired during download")));
+        }
+
+        const ONE_SECOND: chrono::Duration = chrono::Duration::seconds(1);
+
+        let buf_len = buf.filled().len();
+        let mut pinned = pin!(&mut self.as_mut().reader);
+        let f = pinned.poll_read(cx, buf);
+
+        match f {
+            Poll::Ready(Ok(())) => {
+                if
+                    // 0 bytes were read (EOF was reached)
+                    buf.filled().len() == buf_len
+                    // The upload may still be in progress while we're
+                    // downloading
+                    && !self.is_completed
+                    // It's been at most 1 second since the last non-zero read
+                    && now - self.last_read_time <= ONE_SECOND
+                {
+                    // The upload might still be in progress while we're
+                    // downloading, so return pending to let the caller know
+                    // to try again later.
+                    Poll::Pending
+                } else {
+                    self.last_read_time = now;
+                    f
+                }
+            },
+            _ => f
         }
     }
 }

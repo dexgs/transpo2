@@ -22,6 +22,8 @@ use trillium::Conn;
 use trillium_websockets::{WebSocketConn, Message, tungstenite::protocol::frame::coding::CloseCode};
 use trillium_askama::AskamaConnExt;
 
+use tokio::io::AsyncWriteExt;
+
 use smol::prelude::*;
 use smol::io::{AsyncReadExt};
 
@@ -414,8 +416,8 @@ async fn websocket_read_loop(
     }
 
     let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
-    let inner_writer = FileWriter::new(&upload_path, config.max_upload_size_bytes)?;
-    let mut writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
+    let mut writer = AsyncFileWriter::new(
+        &upload_path, config.max_upload_size_bytes).await?;
     let mut bytes_read_interval = 0;
 
     while let Some(Ok(msg)) = conn
