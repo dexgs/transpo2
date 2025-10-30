@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::collections::HashMap;
 
 
@@ -19,20 +19,20 @@ impl Accessor {
 }
 
 pub struct AccessorMutex {
-    mtx: Arc<Mutex<Accessor>>,
+    mtx: Arc<RwLock<Accessor>>,
     parent: Accessors
 }
 
 impl AccessorMutex {
-    pub fn lock<'a>(&'a self) -> MutexGuard<'a, Accessor> {
-        self.mtx.lock().unwrap()
+    pub fn lock<'a>(&'a self) -> RwLockReadGuard<'a, Accessor> {
+        self.mtx.read().unwrap()
     }
 }
 
 impl Drop for AccessorMutex {
     fn drop(&mut self) {
         let mut map = self.parent.0.lock().unwrap();
-        let mut accessor = self.lock();
+        let mut accessor = self.mtx.write().unwrap();
 
         accessor.rc -= 1;
         if accessor.rc == 0 {
@@ -43,7 +43,7 @@ impl Drop for AccessorMutex {
 
 
 #[derive(Clone)]
-pub struct Accessors (Arc<Mutex<HashMap<i64, Arc<Mutex<Accessor>>>>>);
+pub struct Accessors (Arc<Mutex<HashMap<i64, Arc<RwLock<Accessor>>>>>);
 
 impl Accessors {
     pub fn new() -> Self {
@@ -56,7 +56,7 @@ impl Accessors {
         // Get the existing mutex, or create it if it does not exist (or is poisoned)
         let accessor_mutex = match map.get(&id) {
             Some(accessor_mutex) => {
-                match accessor_mutex.lock() {
+                match accessor_mutex.write() {
                     Ok(mut accessor) => {
                         accessor.rc += 1;
                         accessor_mutex.clone()
@@ -67,7 +67,7 @@ impl Accessors {
                             id,
                             rc: 1
                         };
-                        let accessor_mutex = Arc::new(Mutex::new(accessor));
+                        let accessor_mutex = Arc::new(RwLock::new(accessor));
                         accessor_mutex
                     }
                 }
@@ -77,7 +77,7 @@ impl Accessors {
                     id,
                     rc: 1
                 };
-                let accessor_mutex = Arc::new(Mutex::new(accessor));
+                let accessor_mutex = Arc::new(RwLock::new(accessor));
                 accessor_mutex
             }
         };
