@@ -7,9 +7,10 @@ use std::io::{
     Read, BufReader, Seek, SeekFrom};
 use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use chrono::*;
+use chrono::{NaiveDateTime, Local};
 use std::cmp;
 use std::fs::{File, OpenOptions};
+use std::future::Future;
 use std::path::{PathBuf, Path};
 use std::pin::{pin, Pin};
 use std::str;
@@ -17,6 +18,7 @@ use std::task::{Poll, Context};
 use std::time::Duration;
 use streaming_zip::*;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncSeekExt};
+use tokio::time::sleep;
 
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 
@@ -98,13 +100,19 @@ impl AsyncWrite for AsyncFileWriter {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
         -> Poll<Result<usize>>
     {
-        self.bytes_written += buf.len();
-        if self.bytes_written > self.max_upload_size {
+        if self.bytes_written + buf.len() > self.max_upload_size {
             return Poll::Ready(Err(other_error("Maximum upload size exceeded")));
         }
 
         let pinned = pin!(&mut self.as_mut().writer);
-        pinned.poll_write(cx, buf)
+        let f = pinned.poll_write(cx, buf);
+        match f {
+            Poll::Ready(Ok(bytes_written)) => {
+                self.bytes_written += bytes_written;
+                f
+            },
+            _ => f
+        }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
@@ -402,7 +410,11 @@ impl AsyncRead for AsyncFileReader {
                     // The upload might still be in progress while we're
                     // downloading, so return pending to let the caller know
                     // to try again later.
-                    Poll::Pending
+                    let s = sleep(tokio::time::Duration::from_secs(1));
+                    match pin!(s).poll(cx) {
+                        Poll::Ready(_) => Poll::Ready(Ok(())),
+                        _ => Poll::Pending
+                    }
                 } else {
                     self.last_read_time = now;
                     f
