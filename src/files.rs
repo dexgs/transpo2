@@ -426,6 +426,185 @@ impl AsyncRead for AsyncFileReader {
 }
 
 
+pub struct AsyncEncryptedFileReader {
+    reader: AsyncFileReader,
+    cipher: Aes256Gcm,
+    size_buf: [u8; 2],
+    size_buf_len: usize,
+    buffer: [u8; MAX_CHUNK_SIZE],
+    buffer_len: usize,
+    plaintext: Vec<u8>,
+    plaintext_read_start: usize,
+    count: u64
+}
+
+impl AsyncEncryptedFileReader {
+    pub async fn new<P>(
+        path: P,
+        start_index: u64,
+        expire_after: NaiveDateTime,
+        is_completed: bool,
+        key: &[u8],
+        name_cipher: &[u8],
+        mime_cipher: &[u8]) -> Result<(Self, String, String)>
+        where P: AsRef<Path>
+    {
+        let key_slice = b64::base64_decode(key).ok_or(other_error("base64_decode"))?;
+        let key = Key::from_slice(&key_slice);
+        let cipher = Aes256Gcm::new(key);
+        let mut count = 0;
+
+        let name_cipher_decoded = b64::base64_decode(name_cipher)
+            .ok_or(other_error("decrypting file name ciphertext"))?;
+        let mime_cipher_decoded = b64::base64_decode(mime_cipher)
+            .ok_or(other_error("decrypting file mime type ciphertext"))?;
+
+        let name = decrypt_string(&cipher, &name_cipher_decoded, &mut count)?;
+        let mime = decrypt_string(&cipher, &mime_cipher_decoded, &mut count)?;
+
+        let new = Self {
+            reader: AsyncFileReader::new(
+                path, start_index, expire_after, is_completed).await?,
+            cipher: cipher,
+            size_buf: [0; 2],
+            size_buf_len: 0,
+            buffer: [0; MAX_CHUNK_SIZE],
+            buffer_len: 0,
+            plaintext: Vec::with_capacity(MAX_CHUNK_SIZE),
+            plaintext_read_start: 0,
+            count
+        };
+
+        Ok((new, name, mime))
+    }
+}
+
+// Helper function to try to fully read into the contents of `buf`.
+// Reading 0 is considered an error, as we expect to be able to fill `buf`.
+// NOTE: Exception to the above, if `buf` has length 0.
+//
+// Incomplete reads (where we read > 0 bytes, but less than the length of `buf`)
+// are caught and we return a pending result instead (the waker is called to
+// ensure the runtime keeps polling this reader to get more data).
+//
+// Returns the number of bytes read, and an optional poll result which is either
+// an error, or a pending result.
+fn poll_read_full<R>(
+    mut reader: Pin<&mut R>, cx: &mut Context<'_>, buf: &mut[u8])
+    -> (usize, Option<Poll<Result<()>>>)
+    where R: AsyncRead
+{
+    if buf.len() == 0 {
+        return (0, None);
+    }
+
+    let buf_len = buf.len();
+    let mut readbuf = ReadBuf::new(buf);
+    let bytes_remaning = readbuf.remaining();
+    let f = reader.poll_read(cx, &mut readbuf);
+    match f {
+        Poll::Ready(Ok(())) => {
+            let bytes_read = buf_len - readbuf.remaining();
+            if bytes_read == 0 {
+                // Unexpected EOF
+                (0, Some(Poll::Ready(Err(other_error("Unexpected EOF")))))
+            } else if bytes_read < buf_len {
+                // Incomplete read
+                cx.waker().wake_by_ref();
+                (bytes_read, Some(Poll::Pending))
+            } else {
+                (bytes_read, None)
+            }
+        }
+        _ => (0, Some(f))
+    }
+}
+
+impl AsyncRead for AsyncEncryptedFileReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
+        -> Poll<Result<()>>
+    {
+        // Async nonsense to be able to simultaneously mutably borrow separate
+        // member variables.
+        let s = self.get_mut();
+
+        if s.plaintext.is_empty() {
+            // Get the size of the next chunk to read (first 2 bytes)
+            /* TODO: remove this, once I'm sure I don't need it
+            let mut readbuf = ReadBuf::new(&mut s.size_buf[s.size_buf_len..2]);
+            let bytes_remaining = readbuf.remaining();
+            let f = pin!(&mut s.reader).poll_read(cx, &mut readbuf);
+            match f {
+                Poll::Ready(Ok(())) => {
+                    s.size_buf_len += readbuf.filled().len();
+                    if readbuf.remaining() == bytes_remaining {
+                        return Poll::Ready(Err(other_error("Unexpected EOF")));
+                    } else if readbuf.remaining() > 0 {
+                        // If we didn't read the full 2 bytes, we need more data!
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    }
+                },
+                _ => return f
+            }
+            */
+            let (bytes_read, f) = poll_read_full(
+                pin!(&mut s.reader), cx, &mut s.size_buf[s.size_buf_len..2]);
+            s.size_buf_len += bytes_read;
+            if let Some(f) = f { return f; }
+            assert_eq!(s.size_buf_len, 2);
+
+            let size_buf = [s.size_buf[0], s.size_buf[1]];
+            let chunk_size = u16::from_be_bytes(size_buf) as usize;
+            if chunk_size > MAX_CHUNK_SIZE {
+                return Poll::Ready(Err(other_error("Ciphertext chunk too large")));
+            } else if chunk_size == 0 {
+                // A chunk size of 0 indicates the end of the file
+                return Poll::Ready(Ok(()));
+            }
+
+            // Read the full chunk
+            let (bytes_read, f) = poll_read_full(
+                pin!(&mut s.reader), cx, &mut s.buffer[s.buffer_len..chunk_size]);
+            s.buffer_len += bytes_read;
+            if let Some(f) = f { return f; }
+            assert_eq!(s.buffer_len, chunk_size);
+
+            // Decrypt the chunk
+            let nonce_bytes = nonce_bytes_from_count(&s.count);
+            s.count += 1;
+            s.plaintext.extend_from_slice(&s.buffer[..s.buffer_len]);
+            let decrypt_status = s.cipher.decrypt_in_place(
+                Nonce::from_slice(&nonce_bytes), b"", &mut s.plaintext);
+            if decrypt_status.is_err() {
+                return Poll::Ready(Err(other_error("Decrypting ciphertext chunk failed")));
+            }
+        }
+
+        // At this point, we have a plaintext
+        assert!(!s.plaintext.is_empty());
+
+        // Write as much of the plaintext as we can into the caller's ReadBuf
+        let plaintext_remaining = &s.plaintext[s.plaintext_read_start..];
+        let read_size = cmp::min(plaintext_remaining.len(), buf.remaining());
+        buf.put_slice(&plaintext_remaining[..read_size]);
+        s.plaintext_read_start += read_size;
+
+        // If the entire plaintext was read, reset state variables to read
+        // a new ciphertext chunk the next time this reader is polled.
+        if read_size == plaintext_remaining.len() {
+            s.plaintext.clear();
+            s.buffer_len = 0;
+            s.size_buf_len = 0;
+            s.plaintext_read_start = 0;
+        }
+
+        Poll::Ready(Ok(()))
+    }
+}
+
+
 // Wrapper around FileReader. Decrypts its contents with the given key. Also
 // decrypts the encrypted name and mime type of the file
 pub struct EncryptedFileReader {
