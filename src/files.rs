@@ -407,6 +407,7 @@ impl AsyncRead for AsyncFileReader {
                     // The upload might still be in progress while we're
                     // downloading, so return pending to let the caller know
                     // to try again later.
+                    // TODO: consider increasing this sleep duration
                     let s = sleep(tokio::time::Duration::from_secs(1));
                     match pin!(s).poll(cx) {
                         Poll::Ready(_) => Poll::Ready(Ok(())),
