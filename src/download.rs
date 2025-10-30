@@ -10,9 +10,13 @@ use crate::cleanup::delete_upload;
 
 use std::io::{Read, Result};
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::pin::{pin, Pin};
 
 use blocking::*;
 use trillium::{Conn, Body};
+use tokio::io::{AsyncRead, ReadBuf};
+use trillium_tokio::async_compat::Compat;
 
 use urlencoding::{decode, encode};
 
@@ -64,6 +68,62 @@ where R: Read {
         self.reader.read(buf)
     }
 }
+
+struct AsyncReader<R>
+where R: AsyncRead {
+    reader: R,
+    accessor_mutex: Option<AccessorMutex>,
+    db_backend: DbBackend,
+    config: Arc<TranspoConfig>
+}
+
+impl<R> AsyncReader<R>
+where R: AsyncRead
+{
+    fn cleanup(&mut self) {
+        let config = self.config.clone();
+        let accessor_mutex = self.accessor_mutex.take().unwrap();
+        let db_backend = self.db_backend.clone();
+        tokio::spawn(unblock(move || {
+            let accessor = accessor_mutex.lock();
+
+            // If we're the last accessor, then it's our responsibility to
+            // clean up the upload if it is now invalid!
+            if accessor.is_only_accessor() {
+                let db_connection = establish_connection(db_backend, &config.db_url);
+
+                let should_delete = match Upload::select_with_id(accessor.id, &db_connection) {
+                    Some(upload) => upload.is_expired(),
+                    None => true
+                };
+
+                if should_delete {
+                    delete_upload(accessor.id, &config.storage_dir, &db_connection);
+                }
+            }
+        }));
+    }
+}
+
+impl<R> Drop for AsyncReader<R> 
+where R: AsyncRead
+{
+    fn drop(&mut self) {
+        self.cleanup();
+    }
+}
+
+impl<R> AsyncRead for AsyncReader<R>
+where R: AsyncRead + Unpin
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
+        -> Poll<Result<()>>
+    {
+        pin!(&mut self.as_mut().reader).poll_read(cx, buf)
+    }
+}
+
 
 #[derive(Default)]
 struct DownloadQuery {
@@ -190,27 +250,23 @@ pub async fn info(
 }
 
 
-pub async fn handle(
-    conn: Conn, id_string: String, config: Arc<TranspoConfig>,
-    accessors: Accessors, translation: Translation, db_backend: DbBackend) -> Conn
+async fn get_response_for(
+    id_string: String, query: DownloadQuery, config: Arc<TranspoConfig>,
+    accessors: Accessors, db_backend: DbBackend)
+    -> Option<(Body, String, String, usize)>
 {
-    if id_string.len() != base64_encode_length(ID_LENGTH) {
-        return error_404(conn, config, translation);
-    }
-
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
 
-    let query = parse_query(conn.querystring());
     let crypto_key = query.crypto_key;
     let password = query.password;
     let start_index = query.start_index;
 
-    let response = {
+    let (upload, accessor_mutex) = {
         let config = config.clone();
         unblock(move || {
             let db_connection = establish_connection(db_backend, &config.db_url);
 
-            let upload = get_upload(id, &config, &accessors, &db_connection)?;
+            let upload: Upload = get_upload(id, &config, &accessors, &db_connection)?;
 
             // validate password
             if !check_password(&password, &upload) {
@@ -220,48 +276,65 @@ pub async fn handle(
             let accessor_mutex = accessors.access(id);
             Upload::decrement_remaining_downloads(id, &db_connection)?;
 
-            let upload_path = config.storage_dir.join(&id_string).join("upload");
-            let ciphertext_size = get_file_size(&upload_path).ok()?;
-
-            let (body, file_name, mime_type) = match crypto_key {
-                // server-side decryption
-                Some(key) => {
-                    let (reader, mut file_name, mime_type) =
-                        EncryptedFileReader::new(
-                            &upload_path, start_index, upload.expire_after, upload.is_completed,
-                            &key, upload.file_name.as_bytes(), upload.mime_type.as_bytes()).ok()?;
-
-                    // If file name is missing, assign one based on the app name and upload ID
-                    if file_name.is_empty() {
-                        file_name = format!("{}_{}", config.app_name, id_string);
-
-                        if mime_type == "application/zip" {
-                            file_name.push_str(".zip");
-                        }
-                    }
-
-                    file_name = encode(&file_name).into_owned();
-
-                    let body = create_body_for(
-                        reader, accessor_mutex, db_backend, config);
-
-                    (body, file_name, mime_type)
-                },
-                // no server-side decryption
-                None => {
-                    let reader = FileReader::new(
-                        &upload_path, start_index, upload.expire_after,
-                        upload.is_completed).ok()?;
-                    let body = create_body_for(
-                        reader, accessor_mutex, db_backend, config);
-                    (body, upload.file_name, upload.mime_type)
-                }
-            };
-
-            Some((body, file_name, mime_type, ciphertext_size))
-        }).await
+            Some((upload, accessor_mutex))
+        }).await?
     };
 
+    let config = config.clone();
+
+    let upload_path = config.storage_dir.join(&id_string).join("upload");
+    let ciphertext_size = get_file_size(&upload_path).ok()?.try_into().ok()?;
+
+    let (body, file_name, mime_type) = match crypto_key {
+        // server-side decryption
+        Some(key) => {
+            let (reader, mut file_name, mime_type) =
+                AsyncEncryptedFileReader::new(
+                    &upload_path, start_index, upload.expire_after,
+                    upload.is_completed, &key, upload.file_name.as_bytes(),
+                    upload.mime_type.as_bytes()).await.ok()?;
+
+            // If file name is missing, assign one based on the app name and upload ID
+            if file_name.is_empty() {
+                file_name = format!("{}_{}", config.app_name, id_string);
+
+                if mime_type == "application/zip" {
+                    file_name.push_str(".zip");
+                }
+            }
+
+            file_name = encode(&file_name).into_owned();
+
+            let body = create_async_body_for(
+                reader, accessor_mutex, db_backend, config);
+
+            (body, file_name, mime_type)
+        },
+        // no server-side decryption
+        None => {
+            let reader = AsyncFileReader::new(
+                &upload_path, start_index, upload.expire_after,
+                upload.is_completed).await.ok()?;
+            let body = create_async_body_for(
+                reader, accessor_mutex, db_backend, config);
+            (body, upload.file_name, upload.mime_type)
+        }
+    };
+
+    Some((body, file_name, mime_type, ciphertext_size))
+}
+
+pub async fn handle(
+    conn: Conn, id_string: String, config: Arc<TranspoConfig>,
+    accessors: Accessors, translation: Translation, db_backend: DbBackend) -> Conn
+{
+    if id_string.len() != base64_encode_length(ID_LENGTH) {
+        return error_404(conn, config, translation);
+    }
+
+    let query = parse_query(conn.querystring());
+    let response = get_response_for(
+        id_string, query, config.clone(), accessors, db_backend).await;
     match response {
         Some((body, file_name, mime_type, ciphertext_size)) => {
             conn
@@ -291,4 +364,19 @@ where R: Read + Sync + Send + 'static
     };
 
     Body::new_streaming(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, reader), None)
+}
+
+fn create_async_body_for<R>(
+    reader: R, accessor_mutex: AccessorMutex,
+    db_backend: DbBackend, config: Arc<TranspoConfig>) -> Body
+where R: AsyncRead + Unpin + Sync + Send + 'static
+{
+    let reader = AsyncReader {
+        reader,
+        accessor_mutex: Some(accessor_mutex),
+        db_backend,
+        config
+    };
+
+    Body::new_streaming(Compat::new(reader), None)
 }

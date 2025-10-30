@@ -390,7 +390,7 @@ impl AsyncRead for AsyncFileReader {
         const ONE_SECOND: chrono::Duration = chrono::Duration::seconds(1);
 
         let buf_len = buf.filled().len();
-        let mut pinned = pin!(&mut self.as_mut().reader);
+        let pinned = pin!(&mut self.as_mut().reader);
         let f = pinned.poll_read(cx, buf);
 
         match f {
@@ -490,7 +490,7 @@ impl AsyncEncryptedFileReader {
 // Returns the number of bytes read, and an optional poll result which is either
 // an error, or a pending result.
 fn poll_read_full<R>(
-    mut reader: Pin<&mut R>, cx: &mut Context<'_>, buf: &mut[u8])
+    reader: Pin<&mut R>, cx: &mut Context<'_>, buf: &mut[u8])
     -> (usize, Option<Poll<Result<()>>>)
     where R: AsyncRead
 {
@@ -500,7 +500,6 @@ fn poll_read_full<R>(
 
     let buf_len = buf.len();
     let mut readbuf = ReadBuf::new(buf);
-    let bytes_remaning = readbuf.remaining();
     let f = reader.poll_read(cx, &mut readbuf);
     match f {
         Poll::Ready(Ok(())) => {
@@ -522,7 +521,7 @@ fn poll_read_full<R>(
 
 impl AsyncRead for AsyncEncryptedFileReader {
     fn poll_read(
-        mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
+        self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
         -> Poll<Result<()>>
     {
         // Async nonsense to be able to simultaneously mutably borrow separate
