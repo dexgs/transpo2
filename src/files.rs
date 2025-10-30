@@ -104,8 +104,7 @@ impl AsyncWrite for AsyncFileWriter {
             return Poll::Ready(Err(other_error("Maximum upload size exceeded")));
         }
 
-        let pinned = pin!(&mut self.as_mut().writer);
-        let f = pinned.poll_write(cx, buf);
+        let f = pin!(&mut self.as_mut().writer).poll_write(cx, buf);
         match f {
             Poll::Ready(Ok(bytes_written)) => {
                 self.bytes_written += bytes_written;
@@ -118,15 +117,13 @@ impl AsyncWrite for AsyncFileWriter {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
-        let pinned = pin!(&mut self.as_mut().writer);
-        pinned.poll_flush(cx)
+        pin!(&mut self.as_mut().writer).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
-        let pinned = pin!(&mut self.as_mut().writer);
-        pinned.poll_shutdown(cx)
+        pin!(&mut self.as_mut().writer).poll_shutdown(cx)
     }
 }
 
