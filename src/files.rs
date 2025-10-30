@@ -435,7 +435,8 @@ pub struct AsyncEncryptedFileReader {
     buffer_len: usize,
     plaintext: Vec<u8>,
     plaintext_read_start: usize,
-    count: u64
+    count: u64,
+    is_finished: bool
 }
 
 impl AsyncEncryptedFileReader {
@@ -472,7 +473,8 @@ impl AsyncEncryptedFileReader {
             buffer_len: 0,
             plaintext: Vec::with_capacity(MAX_CHUNK_SIZE),
             plaintext_read_start: 0,
-            count
+            count,
+            is_finished: false
         };
 
         Ok((new, name, mime))
@@ -529,6 +531,10 @@ impl AsyncRead for AsyncEncryptedFileReader {
         // member variables.
         let s = self.get_mut();
 
+        if s.is_finished {
+            return Poll::Ready(Ok(()));
+        }
+
         if s.plaintext.is_empty() {
             // Get the size of the next chunk to read (first 2 bytes)
             /* TODO: remove this, once I'm sure I don't need it
@@ -561,6 +567,7 @@ impl AsyncRead for AsyncEncryptedFileReader {
                 return Poll::Ready(Err(other_error("Ciphertext chunk too large")));
             } else if chunk_size == 0 {
                 // A chunk size of 0 indicates the end of the file
+                s.is_finished = true;
                 return Poll::Ready(Ok(()));
             }
 
