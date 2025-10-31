@@ -40,15 +40,15 @@ where R: Read
         // If we're the last accessor, then it's our responsibility to
         // clean up the upload if it is now invalid!
         if accessor.is_only_accessor() {
-            let db_connection = establish_connection(self.db_backend, &self.config.db_url);
+            let mut db_connection = establish_connection(self.db_backend, &self.config.db_url);
 
-            let should_delete = match Upload::select_with_id(accessor.id, &db_connection) {
+            let should_delete = match Upload::select_with_id(accessor.id, &mut db_connection) {
                 Some(upload) => upload.is_expired(),
                 None => true
             };
 
             if should_delete {
-                delete_upload(accessor.id, &self.config.storage_dir, &db_connection);
+                delete_upload(accessor.id, &self.config.storage_dir, &mut db_connection);
             }
         }
     }
@@ -90,15 +90,15 @@ where R: AsyncRead
             // If we're the last accessor, then it's our responsibility to
             // clean up the upload if it is now invalid!
             if accessor.is_only_accessor() {
-                let db_connection = establish_connection(db_backend, &config.db_url);
+                let mut db_connection = establish_connection(db_backend, &config.db_url);
 
-                let should_delete = match Upload::select_with_id(accessor.id, &db_connection) {
+                let should_delete = match Upload::select_with_id(accessor.id, &mut db_connection) {
                     Some(upload) => upload.is_expired(),
                     None => true
                 };
 
                 if should_delete {
-                    delete_upload(accessor.id, &config.storage_dir, &db_connection);
+                    delete_upload(accessor.id, &config.storage_dir, &mut db_connection);
                 }
             }
         }));
@@ -159,17 +159,17 @@ fn parse_query(query: &str) -> DownloadQuery {
 
 fn get_upload(
     id: i64, config: &TranspoConfig, accessors: &Accessors,
-    db_connection: &DbConnection) -> Option<Upload>
+    db_connection: &mut DbConnection) -> Option<Upload>
 {
     let accessor_mutex = accessors.access(id);
     let accessor = accessor_mutex.lock();
 
-    let row = Upload::select_with_id(id, &db_connection)?;
+    let row = Upload::select_with_id(id, db_connection)?;
 
     // If the row is expired and we are the only accessor, clean it up!
     let upload = if row.is_expired() {
         if accessor.is_only_accessor() {
-            delete_upload(accessor.id, &config.storage_dir, &db_connection);
+            delete_upload(accessor.id, &config.storage_dir, db_connection);
         }
         None
     } else {
@@ -214,8 +214,8 @@ pub async fn info(
 
     let config_ = config.clone();
     let info = unblock(move || {
-        let db_connection = establish_connection(db_backend, &config_.db_url);
-        let upload = get_upload(id, &config_, &accessors, &db_connection)?;
+        let mut db_connection = establish_connection(db_backend, &config_.db_url);
+        let upload = get_upload(id, &config_, &accessors, &mut db_connection)?;
         let upload_path = config_.storage_dir.join(&id_string).join("upload");
         let ciphertext_size = if upload.is_completed {
             get_file_size(&upload_path).ok()?
@@ -264,9 +264,9 @@ async fn get_response_for(
     let (upload, accessor_mutex) = {
         let config = config.clone();
         unblock(move || {
-            let db_connection = establish_connection(db_backend, &config.db_url);
+            let mut db_connection = establish_connection(db_backend, &config.db_url);
 
-            let upload: Upload = get_upload(id, &config, &accessors, &db_connection)?;
+            let upload: Upload = get_upload(id, &config, &accessors, &mut db_connection)?;
 
             // validate password
             if !check_password(&password, &upload) {
@@ -274,7 +274,7 @@ async fn get_response_for(
             }
 
             let accessor_mutex = accessors.access(id);
-            Upload::decrement_remaining_downloads(id, &db_connection)?;
+            Upload::decrement_remaining_downloads(id, &mut db_connection)?;
 
             Some((upload, accessor_mutex))
         }).await?

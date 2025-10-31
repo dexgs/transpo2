@@ -394,8 +394,8 @@ pub async fn handle_websocket(
 
 
         unblock(move || {
-            let db_connection = establish_connection(db_backend, &config.db_url);
-            delete_upload(upload_id, &config.storage_dir, &db_connection);
+            let mut db_connection = establish_connection(db_backend, &config.db_url);
+            delete_upload(upload_id, &config.storage_dir, &mut db_connection);
         }).await;
     }
 
@@ -594,8 +594,8 @@ pub async fn handle_post(
         let response = error_400(conn, config.clone(), translation);
 
         unblock(move || {
-            let db_connection = establish_connection(db_backend, &config.db_url);
-            delete_upload(upload_id, &config.storage_dir, &db_connection);
+            let mut db_connection = establish_connection(db_backend, &config.db_url);
+            delete_upload(upload_id, &config.storage_dir, &mut db_connection);
         }).await;
 
         response
@@ -1011,8 +1011,8 @@ async fn write_to_db(
     };
 
     unblock(move || {
-        let db_connection = establish_connection(db_backend, &config.db_url);
-        let num_modified_rows = upload.insert(&db_connection)?;
+        let mut db_connection = establish_connection(db_backend, &config.db_url);
+        let num_modified_rows = upload.insert(&mut db_connection)?;
 
         Some(num_modified_rows)
     }).await
@@ -1022,8 +1022,8 @@ async fn write_is_completed(
     id: i64, db_backend: DbBackend, config: Arc<TranspoConfig>) -> Option<usize>
 {
     unblock(move || {
-        let db_connection = establish_connection(db_backend, &config.db_url);
-        let num_modified_rows = Upload::set_is_completed(id, true, &db_connection)?;
+        let mut db_connection = establish_connection(db_backend, &config.db_url);
+        let num_modified_rows = Upload::set_is_completed(id, true, &mut db_connection)?;
 
         Some(num_modified_rows)
     }).await

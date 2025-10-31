@@ -1,4 +1,5 @@
 use diesel::prelude::*;
+use diesel::sql_query;
 use diesel_migrations::*;
 use chrono::{NaiveDateTime, Local};
 use std::path::Path;
@@ -7,9 +8,7 @@ use std::path::Path;
 macro_rules! conn {
     ($dbc:expr, $e:expr) => {
         {
-            let dbc = $dbc;
-
-            match dbc {
+            match $dbc {
                 #[cfg(feature = "mysql")]
                 DbConnection::Mysql(c) => $e(c),
 
@@ -45,7 +44,7 @@ pub enum DbBackend {
 #[derive(Debug)]
 #[derive(Queryable)]
 #[derive(Insertable)]
-#[table_name="uploads"]
+#[diesel(table_name = uploads)]
 pub struct Upload {
     // unique identifier for this upload
     pub id: i64,
@@ -63,7 +62,7 @@ pub struct Upload {
     pub is_completed: bool
 }
 
-table! {
+diesel::table! {
     uploads (id) {
         id -> BigInt,
         file_name -> Text,
@@ -78,7 +77,7 @@ table! {
 impl Upload {
     // Insert into DB, return number of modified rows, or None if there
     // was a problem.
-    pub fn insert(&self, db_connection: &DbConnection) -> Option<usize> {
+    pub fn insert(&self, db_connection: &mut DbConnection) -> Option<usize> {
         let insert = diesel::insert_into(uploads::table)
             .values(self);
        
@@ -108,7 +107,7 @@ impl Upload {
     }
 
     // Return the Upload with the given ID
-    pub fn select_with_id(id: i64, db_connection: &DbConnection) -> Option<Self> {
+    pub fn select_with_id(id: i64, db_connection: &mut DbConnection) -> Option<Self> {
         let select = uploads::table
             .filter(uploads::id.eq(id))
             .limit(1);
@@ -118,7 +117,7 @@ impl Upload {
 
     // Decrement the number of remaining downloads on the row with the given ID. Return
     // the number of modified rows.
-    pub fn decrement_remaining_downloads(id: i64, db_connection: &DbConnection) -> Option<usize> {
+    pub fn decrement_remaining_downloads(id: i64, db_connection: &mut DbConnection) -> Option<usize> {
         let target = uploads::table
             .filter(uploads::id.eq(id)
                 .and(uploads::remaining_downloads.is_not_null()));
@@ -128,7 +127,7 @@ impl Upload {
         conn!(db_connection, |c| update.execute(c)).ok()
     }
 
-    pub fn set_is_completed(id: i64, is_completed: bool, db_connection: &DbConnection) -> Option<usize> {
+    pub fn set_is_completed(id: i64, is_completed: bool, db_connection: &mut DbConnection) -> Option<usize> {
         let target = uploads::table
             .filter(uploads::id.eq(id));
 
@@ -139,7 +138,7 @@ impl Upload {
     }
 
     // Delete the row with the given ID
-    pub fn delete_with_id(id: i64, db_connection: &DbConnection) -> Option<usize> {
+    pub fn delete_with_id(id: i64, db_connection: &mut DbConnection) -> Option<usize> {
         let target = uploads::table
             .filter(uploads::id.eq(id));
         let delete = diesel::delete(target);
@@ -148,7 +147,7 @@ impl Upload {
     }
 
     // Return a list of IDs for expired (time-based) uploads
-    pub fn select_expired(db_connection: &DbConnection) -> Option<Vec<i64>> {
+    pub fn select_expired(db_connection: &mut DbConnection) -> Option<Vec<i64>> {
         let now = Local::now().naive_utc();
         let select = uploads::table
             .filter(uploads::expire_after.lt(now))
@@ -157,7 +156,7 @@ impl Upload {
         conn!(db_connection, |c| select.load::<i64>(c)).ok()
     }
 
-    pub fn select_all(db_connection: &DbConnection) -> Option<Vec<i64>> {
+    pub fn select_all(db_connection: &mut DbConnection) -> Option<Vec<i64>> {
         let select = uploads::table.select(uploads::id);
 
         conn!(db_connection, |c| select.load::<i64>(c)).ok()
@@ -165,39 +164,41 @@ impl Upload {
 }
 
 
-fn get_migrations<C, P>(db_connection: &C, path: P) -> Vec<Box<dyn Migration + 'static>>
-where C: connection::MigrationConnection,
-      P: AsRef<Path>
+fn get_migrations<P>(path: P) -> FileBasedMigrations
+where P: AsRef<Path>
 {
+    /*
     mark_migrations_in_directory(db_connection, path.as_ref())
         .expect("Marking database migrations")
         .into_iter()
         .filter_map(|(m, is_applied)| if is_applied { None } else { Some(m) })
         .collect()
+    */
+    FileBasedMigrations::from_path(path).expect("Opening DB migrations directory")
 }
 
-pub fn run_migrations<P>(db_connection: &DbConnection, path: P)
+pub fn run_migrations<P>(db_connection: &mut DbConnection, path: P)
 where P: AsRef<Path>
 {
     let path = path.as_ref();
-    let stdout = &mut std::io::stdout();
-    match db_connection {
+    let path = match db_connection {
         #[cfg(feature = "mysql")]
-        DbConnection::Mysql(c) => {
-            let migrations: Vec<_> = get_migrations(c, path.join("migrations"));
-            diesel_migrations::run_migrations(c, migrations, stdout)
-        },
-        #[cfg(feature = "postgres")]
-        DbConnection::Pg(c) => {
-            let migrations: Vec<_> = get_migrations(c, path.join("pg_migrations"));
-            diesel_migrations::run_migrations(c, migrations, stdout)
-        },
+        DbConnection::Mysql(_) => path.join("migrations"),
+
         #[cfg(feature = "sqlite")]
-        DbConnection::Sqlite(c) => {
-            let migrations: Vec<_> = get_migrations(c, path.join("migrations"));
-            diesel_migrations::run_migrations(c, migrations, stdout)
-        }
-    }.expect("Running database migrations");
+        DbConnection::Sqlite(_) => path.join("migrations"),
+
+        #[cfg(feature = "postgres")]
+        DbConnection::Postgres(_) => path.join("pg_migrations")
+    };
+
+    let migrations = get_migrations(path);
+
+    conn!(db_connection, |c| {
+        let mut harness = HarnessWithOutput::write_to_stdout(c);
+        harness.run_pending_migrations(migrations)
+            .expect("Running database migrations");
+    });
 }
 
 pub fn parse_db_backend(db_url: &str) -> Option<DbBackend> {
@@ -230,9 +231,10 @@ pub fn establish_connection(db_backend: DbBackend, db_url: &str) -> DbConnection
 
             #[cfg(feature = "sqlite")]
         DbBackend::Sqlite => {
-            let connection = SqliteConnection::establish(&db_url)
+            let mut connection = SqliteConnection::establish(&db_url)
                 .expect("Establishing SQLite connection");
-            connection.execute("PRAGMA busy_timeout = 15000;")
+            let set_busy_timeout = sql_query("PRAGMA busy_timeout = 15000;");
+            set_busy_timeout.execute(&mut connection)
                 .expect("Setting busy timeout");
             DbConnection::Sqlite(connection)
         }

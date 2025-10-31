@@ -20,8 +20,8 @@ trillium-askama = "0.3"
 askama = "0.11"
 rand = "0.8"
 aes-gcm = "0.9"
-diesel = { version = "1.4", features = ["chrono"] }
-diesel_migrations = "1.4"
+diesel = { version = "2.2", features = ["chrono"] }
+diesel_migrations = "2.2"
 chrono = "0.4.42"
 argon2 = "0.4"
 urlencoding = "2.1"

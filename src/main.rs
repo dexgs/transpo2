@@ -76,8 +76,8 @@ fn main() {
         .expect("Creating storage directory");
 
     if let Some(db_backend) = db::parse_db_backend(&config.db_url) {
-        let db_connection = db::establish_connection(db_backend, &config.db_url);
-        db::run_migrations(&db_connection, &config.migrations_dir);
+        let mut db_connection = db::establish_connection(db_backend, &config.db_url);
+        db::run_migrations(&mut db_connection, &config.migrations_dir);
 
         let config = Arc::new(config);
         let translations = Arc::new(translations);
