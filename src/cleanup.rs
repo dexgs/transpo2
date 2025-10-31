@@ -32,12 +32,12 @@ fn cleanup_thread(
     db_backend: DbBackend, db_url: String)
 {
     loop {
-        thread::sleep(Duration::from_secs(CLEANUP_DELAY_SECS));
-
         let storage_path = storage_path.clone();
         let db_url = db_url.clone();
 
         thread::spawn(move || cleanup(read_timeout_ms, storage_path, db_backend, db_url));
+
+        thread::sleep(Duration::from_secs(CLEANUP_DELAY_SECS));
     }
 }
 
