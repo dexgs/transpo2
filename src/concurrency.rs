@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
-use std::collections::HashMap;
+use dashmap::DashMap;
 
 
 // Count the number of concurrent accessors to files to make sure that they
@@ -31,11 +31,11 @@ impl AccessorMutex {
 
 impl Drop for AccessorMutex {
     fn drop(&mut self) {
-        let mut map = self.parent.0.lock().unwrap();
         let mut accessor = self.mtx.write().unwrap();
 
         accessor.rc -= 1;
         if accessor.rc == 0 {
+            let map = &self.parent.0;
             map.remove(&accessor.id);
         }
     }
@@ -43,15 +43,15 @@ impl Drop for AccessorMutex {
 
 
 #[derive(Clone)]
-pub struct Accessors (Arc<Mutex<HashMap<i64, Arc<RwLock<Accessor>>>>>);
+pub struct Accessors (Arc<DashMap<i64, Arc<RwLock<Accessor>>>>);
 
 impl Accessors {
     pub fn new() -> Self {
-        Self (Arc::new(Mutex::new(HashMap::new())))
+        Self (Arc::new((DashMap::new())))
     }
 
     pub fn access(&self, id: i64) -> AccessorMutex {
-        let mut map = self.0.lock().unwrap();
+        let map = &self.0;
 
         // Get the existing mutex, or create it if it does not exist (or is poisoned)
         let accessor_mutex = match map.get(&id) {

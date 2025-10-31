@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -11,7 +11,7 @@ use crate::config::TranspoConfig;
 pub struct Quotas {
     max_bytes: usize,
     bytes_per_minute: usize,
-    quotas: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    quotas: Arc<DashMap<IpAddr, usize>>,
 }
 
 impl From<&TranspoConfig> for Quotas {
@@ -19,7 +19,7 @@ impl From<&TranspoConfig> for Quotas {
         Self {
             max_bytes: config.quota_bytes_total,
             bytes_per_minute: config.quota_bytes_per_minute,
-            quotas: Arc::new(Mutex::new(HashMap::new()))
+            quotas: Arc::new(DashMap::new())
         }
     }
 }
@@ -28,15 +28,13 @@ impl Quotas {
     // Return whether or not writing the given amount of bytes would exceed
     // the quota for the given address
     pub fn exceeds_quota(&self, addr: &IpAddr, bytes: usize) -> bool {
-        let mut quotas = self.quotas.lock().unwrap();
-
-        let count = match quotas.get_mut(addr) {
-            Some(count) => {
+        let count = match self.quotas.get_mut(addr) {
+            Some(mut count) => {
                 *count += bytes;
                 *count
             },
             None => {
-                quotas.insert(addr.to_owned(), bytes);
+                self.quotas.insert(addr.to_owned(), bytes);
                 bytes
             }
         };
@@ -45,11 +43,9 @@ impl Quotas {
     }
 
     fn replenish(&self) {
-        let mut quotas = self.quotas.lock().unwrap();
+        self.quotas.retain(|_, count| *count > self.bytes_per_minute);
 
-        quotas.retain(|_, count| *count > self.bytes_per_minute);
-
-        for count in quotas.values_mut() {
+        for mut count in self.quotas.iter_mut() {
             *count -= self.bytes_per_minute;
         }
     }
