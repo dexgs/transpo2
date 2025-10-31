@@ -47,7 +47,7 @@ const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
 // Content-Disposition for valid form fields
 const SERVER_SIDE_PROCESSING_CD: &'static str = "form-data; name=\"server-side-processing\"";
-const ENABLE_MULTIPLE_FILES_CD: &'static str = "form-data; name=\"enable-multiple-files\"";
+//const ENABLE_MULTIPLE_FILES_CD: &'static str = "form-data; name=\"enable-multiple-files\"";
 const FILES_CD_PREFIX: &'static str = "form-data; name=\"files\"; filename=";
 const DAYS_CD: &'static str = "form-data; name=\"days\"";
 const HOURS_CD: &'static str = "form-data; name=\"hours\"";
@@ -148,7 +148,6 @@ impl UploadQuery {
 #[derive(PartialEq, Debug)]
 enum FormField {
     ServerSideProcessing,
-    EnableMultipleFiles,
     Files,
     Days,
     Hours,
@@ -166,7 +165,6 @@ fn match_content_disposition(cd: &str) -> FormField {
     } else {
         match cd {
             SERVER_SIDE_PROCESSING_CD => FormField::ServerSideProcessing,
-            ENABLE_MULTIPLE_FILES_CD => FormField::EnableMultipleFiles,
             DAYS_CD => FormField::Days,
             HOURS_CD => FormField::Hours,
             MINUTES_CD => FormField::Minutes,
@@ -224,7 +222,6 @@ impl UploadForm {
     fn is_valid_field(&self, field: &FormField) -> bool {
         match field {
             FormField::ServerSideProcessing => self.server_side_processing.is_none(),
-            FormField::EnableMultipleFiles => self.enable_multiple_files.is_none(),
             FormField::Days => self.days.is_none(),
             FormField::Hours => self.hours.is_none(),
             FormField::Minutes => self.minutes.is_none(),
@@ -242,7 +239,6 @@ impl UploadForm {
             Ok(value) => {
                 match field {
                     FormField::ServerSideProcessing => Self::parse_bool_value(value, &mut self.server_side_processing),
-                    FormField::EnableMultipleFiles => Self::parse_bool_value(value, &mut self.enable_multiple_files),
                     FormField::Days => Self::parse_from_str(value, &mut self.days),
                     FormField::Hours => Self::parse_from_str(value, &mut self.hours),
                     FormField::Minutes => Self::parse_from_str(value, &mut self.minutes),
@@ -934,32 +930,21 @@ async fn handle_file_start(
         },
         None => {
             if server_side_processing {
-                if enable_multiple_files {
-                    // Multi-file upload with server-side processing on
-                    let (mut inner_writer, key, file_name, mime_type)
-                        = EncryptedZipWriter::new(
-                            &upload_path, max_upload_size,
-                            compression_level as u8)?;
-                    let file_name_str = file_name_str.to_owned();
+                // Multi-file server-side encrypted upload. Server-side
+                // encrypted uploads are always zipped.
+                let (mut inner_writer, key, file_name, mime_type)
+                    = EncryptedZipWriter::new(
+                        &upload_path, max_upload_size,
+                        compression_level as u8)?;
+                let file_name_str = file_name_str.to_owned();
 
-                    let inner_writer = unblock::<Result<Unblock<EncryptedZipWriter>>, _>(move || {
-                        inner_writer.start_new_file(&file_name_str)?;
-                        Ok(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer))
-                    }).await;
+                let inner_writer = unblock::<Result<Unblock<EncryptedZipWriter>>, _>(move || {
+                    inner_writer.start_new_file(&file_name_str)?;
+                    Ok(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer))
+                }).await;
 
-                    *file_writer = Some(Writer::EncryptedZip(inner_writer?));
-                    return Ok((Some(key), Some(file_name), Some(mime_type)));
-                } else {
-                    // Single file upload with server-side processing on
-                    let (inner_writer, key, file_name, mime_type)
-                        = EncryptedFileWriter::new(
-                            &upload_path, max_upload_size,
-                            file_name_str, mime_type_str)?;
-                    let inner_writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
-
-                    *file_writer = Some(Writer::Encrypted(inner_writer));
-                    return Ok((Some(key), Some(file_name), Some(mime_type)));
-                }
+                *file_writer = Some(Writer::EncryptedZip(inner_writer?));
+                return Ok((Some(key), Some(file_name), Some(mime_type)));
             } else {
                 // Single file upload with client-side processing
                 let file_name = Some(file_name_str.as_bytes().to_owned());
