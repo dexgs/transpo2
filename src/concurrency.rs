@@ -47,7 +47,7 @@ pub struct Accessors (Arc<DashMap<i64, Arc<RwLock<Accessor>>>>);
 
 impl Accessors {
     pub fn new() -> Self {
-        Self (Arc::new((DashMap::new())))
+        Self (Arc::new(DashMap::new()))
     }
 
     pub fn access(&self, id: i64) -> AccessorMutex {

@@ -102,7 +102,6 @@ impl<'a> PasteTemplate<'a> {
 pub struct UploadLinkTemplate {
     pub app_name: String,
     pub upload_url: String,
-    pub upload_id: String,
     pub t: Translation
 }
 
@@ -143,7 +142,6 @@ pub struct DownloadTemplate<'a> {
 #[derive(Template, Clone)]
 #[template(path = "paste_download.html", escape = "none")]
 pub struct PasteDownloadTemplate<'a> {
-    pub file_id: String,
     pub app_name: &'a String,
     pub has_password: bool,
     pub t: Translation

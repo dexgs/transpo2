@@ -2,9 +2,7 @@ use crate::b64;
 use crate::random_bytes::*;
 use crate::constants::*;
 
-use std::io::{
-    Result, Error, ErrorKind, BufWriter, Write,
-    Read, BufReader, Seek, SeekFrom};
+use std::io::{Result, Error, ErrorKind, BufWriter, Write, SeekFrom};
 use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::{NaiveDateTime, Local};
@@ -15,7 +13,7 @@ use std::path::{PathBuf, Path};
 use std::pin::{pin, Pin};
 use std::str;
 use std::task::{Poll, Context};
-use std::time::Duration;
+// use std::time::Duration;
 use streaming_zip::*;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncSeekExt};
 use tokio::time::sleep;
@@ -293,6 +291,7 @@ impl Write for EncryptedZipWriter {
 
 // Readers
 
+/*
 // Basic wrapper around a buffered reader for a file.
 pub struct FileReader {
     reader: BufReader<File>,
@@ -346,6 +345,7 @@ impl Read for FileReader {
         }
     }
 }
+*/
 
 
 pub struct AsyncFileReader {
@@ -609,6 +609,17 @@ impl AsyncRead for AsyncEncryptedFileReader {
 }
 
 
+fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<String> {
+    let nonce_bytes = nonce_bytes_from_count(count);
+    *count += 1;
+
+    match cipher.decrypt(Nonce::from_slice(&nonce_bytes), bytes) {
+        Ok(plaintext) => String::from_utf8(plaintext).or(Err(other_error("from_utf8"))),
+        Err(_) => Err(other_error("decrypt"))
+    }
+}
+
+/*
 // Wrapper around FileReader. Decrypts its contents with the given key. Also
 // decrypts the encrypted name and mime type of the file
 pub struct EncryptedFileReader {
@@ -618,16 +629,6 @@ pub struct EncryptedFileReader {
     read_start: usize,
     read_end: usize,
     count: u64,
-}
-
-fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<String> {
-    let nonce_bytes = nonce_bytes_from_count(count);
-    *count += 1;
-
-    match cipher.decrypt(Nonce::from_slice(&nonce_bytes), bytes) {
-        Ok(plaintext) => String::from_utf8(plaintext).or(Err(other_error("from_utf8"))),
-        Err(_) => Err(other_error("decrypt"))
-    }
 }
 
 impl EncryptedFileReader {
@@ -740,6 +741,7 @@ impl Read for EncryptedFileReader {
             &mut self.read_end, &mut self.count, &self.cipher, &mut self.reader)
     }
 }
+*/
 
 fn other_error(message: &'static str) -> Error {
     Error::new(ErrorKind::Other, message)

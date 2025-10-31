@@ -8,7 +8,7 @@ use crate::http_errors::*;
 use crate::translations::*;
 use crate::cleanup::delete_upload;
 
-use std::io::{Read, Result};
+use std::io::Result;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::pin::{pin, Pin};
@@ -23,6 +23,7 @@ use urlencoding::{decode, encode};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 
 
+/*
 struct Reader<R>
 where R: Read {
     reader: R,
@@ -68,6 +69,7 @@ where R: Read {
         self.reader.read(buf)
     }
 }
+*/
 
 struct AsyncReader<R>
 where R: AsyncRead {
@@ -351,6 +353,7 @@ pub async fn handle(
     }
 }
 
+/*
 fn create_body_for<R>(
     reader: R, accessor_mutex: AccessorMutex,
     db_backend: DbBackend, config: Arc<TranspoConfig>) -> Body
@@ -365,6 +368,7 @@ where R: Read + Sync + Send + 'static
 
     Body::new_streaming(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, reader), None)
 }
+*/
 
 fn create_async_body_for<R>(
     reader: R, accessor_mutex: AccessorMutex,

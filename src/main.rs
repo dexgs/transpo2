@@ -14,7 +14,6 @@ mod quotas;
 mod http_errors;
 mod translations;
 
-#[macro_use]
 extern crate diesel;
 
 use config::*;
@@ -227,7 +226,6 @@ fn trillium_main(
             if file_id.len() == ID_STRING_LENGTH {
                 let conn = if is_paste {
                     conn.render(PasteDownloadTemplate {
-                        file_id,
                         app_name: &config.app_name,
                         has_password,
                         t: translation

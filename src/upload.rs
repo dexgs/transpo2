@@ -180,7 +180,6 @@ fn match_content_disposition(cd: &str) -> FormField {
 #[derive(Default)]
 struct UploadForm {
     server_side_processing: Option<bool>,
-    enable_multiple_files: Option<bool>,
     days: Option<u16>,
     hours: Option<u8>,
     minutes: Option<u8>,
@@ -300,7 +299,6 @@ impl UploadForm {
 
 enum Writer {
     Basic(Unblock<FileWriter>),
-    Encrypted(Unblock<EncryptedFileWriter>),
     EncryptedZip(Unblock<EncryptedZipWriter>)
 }
 
@@ -308,9 +306,6 @@ impl Writer {
     async fn write(&mut self, buf: &[u8]) -> Result<()> {
         match self {
             Writer::Basic(writer) => {
-                writer.write_all(buf).await
-            },
-            Writer::Encrypted(writer) => {
                 writer.write_all(buf).await
             },
             Writer::EncryptedZip(writer) => {
@@ -322,7 +317,6 @@ impl Writer {
     async fn flush(&mut self) -> Result<()> {
         match self {
             Writer::Basic(writer) => writer.flush().await,
-            Writer::Encrypted(writer) => writer.flush().await,
             Writer::EncryptedZip(writer) => writer.flush().await
         }
     }
@@ -570,7 +564,6 @@ pub async fn handle_post(
                 let template = UploadLinkTemplate {
                     app_name: config.app_name.clone(),
                     upload_url: upload_url,
-                    upload_id: upload_id_string,
                     t: translation
                 };
                 conn.render(template).halt()
@@ -697,16 +690,10 @@ where R: AsyncReadExt + Unpin
                                 Some(true) => true
                             };
 
-                            let enable_multiple_files = match form.enable_multiple_files {
-                                None | Some(false) => false,
-                                Some(true) => true
-                            };
-
                             let is_first_file = file_writer.is_none();
 
                             match handle_file_start(cd, ct, &upload_path, file_writer,
                                                     server_side_processing,
-                                                    enable_multiple_files,
                                                     config.max_upload_size_bytes,
                                                     config.compression_level).await
                             {
@@ -811,10 +798,6 @@ where R: AsyncReadExt + Unpin
                                         Ok(())
                                     }).await?;
                                 },
-                                Writer::Encrypted(mut writer) => {
-                                    writer.with_mut(|w| w.finish()).await?;
-                                    writer.flush().await?;
-                                },
                                 _ => {}
                             }
                         }
@@ -896,7 +879,6 @@ fn get_file_name(cd: &str) -> Option<&str> {
 async fn handle_file_start(
     cd: &str, ct: &str, upload_path: &PathBuf, file_writer: &mut Option<Writer>,
     server_side_processing: bool,
-    enable_multiple_files: bool,
     max_upload_size: usize,
     compression_level: usize) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)>
 {
