@@ -4,12 +4,12 @@
 use std::{cmp, str};
 
 const CD_PREFIX: &'static [u8] = b"Content-Disposition: ";
-const CD_PREFIX_BYTE_MAP: &'static [bool] = &cd_prefix_byte_map();
+const CD_PREFIX_BYTE_MAP: &'static [u8] = &byte_map(CD_PREFIX).unwrap();
 const CT_PREFIX: &'static [u8] = b"Content-Type: ";
-const CT_PREFIX_BYTE_MAP: &'static [bool] = &ct_prefix_byte_map();
+const CT_PREFIX_BYTE_MAP: &'static [u8] = &byte_map(CT_PREFIX).unwrap();
 const TERMINATOR: &'static [u8] = b"--"; // Come with me if you want to live.
 const NEWLINE: &'static [u8] = b"\r\n";
-const NEWLINE_BYTE_MAP: &'static [bool] = &newline_byte_map();
+const NEWLINE_BYTE_MAP: &'static [u8] = &byte_map(NEWLINE).unwrap();
 
 pub enum ParseResult<'a> {
     // There is a separate `bytes` field because the number of bytes parsed can
@@ -42,7 +42,7 @@ pub enum ParseResult<'a> {
 // Parsing is finished when `Finished` or `Error` is returned.
 //
 // `boundary` MUST begin with "\r\n--"
-pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[bool]) -> ParseResult<'a>
+pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[u8]) -> ParseResult<'a>
 where B: AsRef<[u8]>
 {
     let boundary = boundary.as_ref();
@@ -141,7 +141,7 @@ where B: AsRef<[u8]>
 // Strip the given prefix off of buf. If buf does not start with the given
 // prefix, return a parse result of either NeedMoreData if buf could possibly
 // start with prefix if it were longer or Error if it does not and cannot
-fn try_strip_prefix<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool]) -> Result<&'a [u8], ParseResult<'a>> {
+fn try_strip_prefix<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[u8]) -> Result<&'a [u8], ParseResult<'a>> {
     match buf.strip_prefix(prefix) {
         Some(buf) => Ok(buf),
         None => {
@@ -156,7 +156,7 @@ fn try_strip_prefix<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool]) 
     }
 }
 
-fn try_find_subslice<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool]) -> Result<usize, ParseResult<'a>> {
+fn try_find_subslice<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[u8]) -> Result<usize, ParseResult<'a>> {
     match find_subslice(buf, prefix, prefix_byte_map) {
         Some(index) => Ok(index),
         None => Err(ParseResult::NeedMoreData)
@@ -164,21 +164,15 @@ fn try_find_subslice<'a>(buf: &'a [u8], prefix: &[u8], prefix_byte_map: &[bool])
 }
 
 // Return the index of the first instance of s2 in s1
-fn find_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option<usize>
+fn find_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[u8]) -> Option<usize>
 {
     let mut i = 0;
-    'outer: while i + s2.len() <= s1.len() {
-        for j in (1..s2.len()).rev() {
-            // If we find a byte that does not occur in s2, we know that no
-            // instance of s2 in s1 can overlap with that byte, so we can "jump"
-            // past it in our search.
-            if !s2_byte_map[s1[i + j - 1] as usize] {
-                i += j;
-                continue 'outer;
-            }
-        }
 
-        if &s1[i..(i + s2.len())] == s2 {
+    while i + s2.len() <= s1.len() {
+        let skip = s2_byte_map[s1[i + s2.len() - 1] as usize];
+        if skip > 0 {
+            i += skip as usize;
+        } else if &s1[i..(i + s2.len())] == s2 {
             return Some(i);
         } else {
             i += 1;
@@ -192,16 +186,42 @@ fn find_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option<usize>
 // occurs at the end of s1.
 //
 // Example: for s1 = "foobar" and s2 = "barnacle", the functioun should return 3
-fn find_ending_subslice_of(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option<usize>
+fn find_ending_subslice_of(s1: &[u8], s2: &[u8], s2_byte_map: &[u8]) -> Option<usize>
 {
-    if s1.len() > 1 && s2.len() > 1 {
-        for sub_len in 1..=cmp::min(s2.len(), s1.len()) {
-            // If the first byte of the last `sub_len` bytes of s1 is not in s2
-            if !s2_byte_map[s1[s1.len() - sub_len] as usize] {
-                return None;
-            } else if s1.ends_with(&s2[..sub_len]) {
-                return Some(s1.len() - sub_len);
+    if s1.len() == 0 || s2.len() == 0 {
+        return None;
+    }
+
+    // The bad byte map essentially encodes the position of the last occurrence
+    // of each character in s2. We can get back the position by doing
+    // (s2.len() - 1 - s2_bad_byte_map[c]). This gives the index in s2 of the
+    // last occurrence of c.
+
+    let mut longest_possible_subslice = cmp::min(s1.len(), s2.len());
+    let mut i = 1;
+    while i <= longest_possible_subslice {
+        let c = s1[s1.len() - i] as usize;
+        if s2_byte_map[c] as usize == s2.len() {
+            // if c does not occur in s2
+            if i - 1 < longest_possible_subslice {
+                longest_possible_subslice = i - 1;
             }
+            break;
+        }
+        let last_occurrence = s2.len() - 1 - s2_byte_map[c] as usize;
+        // Length of the *longest* possible subslice which has c at the given
+        // position
+        let longest_subslice = last_occurrence + i;
+        if longest_subslice < longest_possible_subslice {
+            longest_possible_subslice = longest_subslice;
+        }
+
+        i += 1;
+    }
+
+    for i in (1..=longest_possible_subslice).rev() {
+        if s1.ends_with(&s2[..i]) {
+            return Some(s1.len() - i);
         }
     }
 
@@ -209,7 +229,7 @@ fn find_ending_subslice_of(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> Option
 }
 
 // Return whether or not s1 ends with a subslice of s2
-fn ends_with_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> bool {
+fn ends_with_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[u8]) -> bool {
     find_ending_subslice_of(s1, s2, s2_byte_map).is_some()
 }
 
@@ -217,7 +237,7 @@ fn ends_with_subslice(s1: &[u8], s2: &[u8], s2_byte_map: &[bool]) -> bool {
 // boundary is present in the current buffer, or a subslice of it is and it's
 // possible that it will be completed on the next parse. If the value is not
 // terminated within the contents of `buf`, the length of `buf` is returned.
-fn find_value_len<B1, B2>(buf: B1, boundary: B2, boundary_byte_map: &[bool]) -> usize
+fn find_value_len<B1, B2>(buf: B1, boundary: B2, boundary_byte_map: &[u8]) -> usize
 where B1: AsRef<[u8]>,
       B2: AsRef<[u8]>
 {
@@ -233,76 +253,31 @@ where B1: AsRef<[u8]>,
     }
 }
 
-// Return an array of bool where the value at index n (for any n: u8) represents
-// whether or not that byte is present in the given byte string.
+// Map for implementing the Boyer-Moore bad character rule. Given a byte string
+// `r` and a search string `s` where we want to find the position of an
+// occurrence of `s` in `r`, the return value of this function tells us how many
+// bytes we can skip over before reaching a possible occurrence of `s`.
 //
-// By doing this, it becomes possible to check whether or not a given value
-// appears in the byte string in constant time by evaluating the element at the
-// index equal to that value.
-pub fn byte_map(s: &[u8]) -> [bool; u8::MAX as usize + 1] {
-    let mut map = [false; u8::MAX as usize + 1];
-    for b in s {
-        map[*b as usize] = true;
+// If we want to check if `s` starts at index `i` in `r`, we can look up
+// `byte_map[r[i + s.len() - 1]]`. This value is the number of characters we
+// can safely skip over before the next position where `s` might occur. We only
+// have to check if `s` occurs at `i` if the value of the byte map is 0.
+//
+// https://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_string-search_algorithm#The_bad-character_rule
+pub const fn byte_map(s: &[u8]) -> Option<[u8; u8::MAX as usize + 1]> {
+    if s.len() > u8::MAX as usize {
+        return None;
     }
-    map
-}
 
-// So we can have NEWLINE_BYTE_MAP as a constant
-const fn newline_byte_map() -> [bool; u8::MAX as usize + 1] {
-    let mut map = [false; u8::MAX as usize + 1];
-    map[b'\r' as usize] = true;
-    map[b'\n' as usize] = true;
-    map
-}
+    let mut map = [s.len() as u8; u8::MAX as usize + 1];
+    let mut i = 0;
 
-// i really wish rust would let you iterate over fixed-size data in constant
-// functions. that would be really, really, really, really great.
+    while i < s.len() {
+        map[s[i] as usize] = (s.len() - (i + 1)) as u8;
+        i += 1;
+    }
 
-// So we can have CD_PREFIX_BYTE_MAP as a constant
-const fn cd_prefix_byte_map() -> [bool; u8::MAX as usize + 1] {
-    let mut map = [false; u8::MAX as usize + 1];
-    map[b'C' as usize] = true;
-    map[b'o' as usize] = true;
-    map[b'n' as usize] = true;
-    map[b't' as usize] = true;
-    map[b'e' as usize] = true;
-    map[b'n' as usize] = true;
-    map[b't' as usize] = true;
-    map[b'-' as usize] = true;
-    map[b'D' as usize] = true;
-    map[b'i' as usize] = true;
-    map[b's' as usize] = true;
-    map[b'p' as usize] = true;
-    map[b'o' as usize] = true;
-    map[b's' as usize] = true;
-    map[b'i' as usize] = true;
-    map[b't' as usize] = true;
-    map[b'i' as usize] = true;
-    map[b'o' as usize] = true;
-    map[b'n' as usize] = true;
-    map[b':' as usize] = true;
-    map[b' ' as usize] = true;
-    map
-}
-
-// So we can have CT_PREFIX_BYTE_MAP as a constant
-const fn ct_prefix_byte_map() -> [bool; u8::MAX as usize + 1] {
-    let mut map = [false; u8::MAX as usize + 1];
-    map[b'C' as usize] = true;
-    map[b'o' as usize] = true;
-    map[b'n' as usize] = true;
-    map[b't' as usize] = true;
-    map[b'e' as usize] = true;
-    map[b'n' as usize] = true;
-    map[b't' as usize] = true;
-    map[b'-' as usize] = true;
-    map[b'T' as usize] = true;
-    map[b'y' as usize] = true;
-    map[b'p' as usize] = true;
-    map[b'e' as usize] = true;
-    map[b':' as usize] = true;
-    map[b' ' as usize] = true;
-    map
+    Some(map)
 }
 
 #[cfg(test)]
@@ -313,20 +288,20 @@ mod tests {
     fn test_find_subslice() {
         let s1 = vec![1, 2, 3, 3, 2, 5, 1];
 
-        assert_eq!(find_subslice(&s1, &vec![3, 2], &byte_map(&vec![3, 2])), Some(3));
-        assert_eq!(find_subslice(&s1, &vec![5, 5], &byte_map(&vec![5, 5])), None);
-        assert_eq!(find_subslice(&s1, &vec![1], &byte_map(&vec![1])), Some(0));
-        assert_eq!(find_subslice(&s1, &vec![0; 20], &byte_map(&vec![0; 20])), None);
-        assert_eq!(find_subslice(&s1, &s1, &byte_map(&s1)), Some(0));
+        assert_eq!(find_subslice(&s1, &vec![3, 2], &byte_map(&vec![3, 2]).unwrap()), Some(3));
+        assert_eq!(find_subslice(&s1, &vec![5, 5], &byte_map(&vec![5, 5]).unwrap()), None);
+        assert_eq!(find_subslice(&s1, &vec![1], &byte_map(&vec![1]).unwrap()), Some(0));
+        assert_eq!(find_subslice(&s1, &vec![0; 20], &byte_map(&vec![0; 20]).unwrap()), None);
+        assert_eq!(find_subslice(&s1, &s1, &byte_map(&s1).unwrap()), Some(0));
     }
 
     #[test]
     fn test_find_ending_subslice_of() {
         let s1 = b"foobar";
 
-        assert_eq!(find_ending_subslice_of(s1, b"barnacle", &byte_map(b"barnacle")), Some(3));
-        assert_eq!(find_ending_subslice_of(s1, b"foobar", &byte_map(b"foobar")), Some(0));
-        assert_eq!(find_ending_subslice_of(s1, b"foo", &byte_map(b"foo")), None);
+        assert_eq!(find_ending_subslice_of(s1, b"barnacle", &byte_map(b"barnacle").unwrap()), Some(3));
+        assert_eq!(find_ending_subslice_of(s1, b"foobar", &byte_map(b"foobar").unwrap()), Some(0));
+        assert_eq!(find_ending_subslice_of(s1, b"foo", &byte_map(b"foo").unwrap()), None);
     }
 
     #[test]
@@ -344,7 +319,7 @@ value2\r
 --boundary--";
 
         const BOUNDARY: &'static [u8] = b"\r\n--boundary";
-        let byte_map = byte_map(BOUNDARY);
+        let byte_map = byte_map(BOUNDARY).unwrap();
         const CD_1: &'static str = "form-data; name=\"field1\"";
         const VALUE_1: &'static [u8] = b"value1";
         const CD_2: &'static str = "form-data; name=\"field2\"; filename=\"example.txt\"";

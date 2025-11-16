@@ -610,14 +610,15 @@ async fn parse_upload_form<R>(
 where R: AsyncReadExt + Unpin
 {
     if is_storage_full(config.clone()).await? {
-        return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
+        return Err(Error::new(ErrorKind::QuotaExceeded, "Storage capacity exceeded"));
     }
 
     let timeout_duration = time::Duration::from_millis(
         config.read_timeout_milliseconds as u64);
     let mut upload_success = false;
     let mut buf = [0; FORM_READ_BUFFER_SIZE];
-    let boundary_byte_map = byte_map(boundary.as_bytes());
+    let boundary_byte_map = byte_map(boundary.as_bytes())
+        .map_or_else(|| Err(Error::new(ErrorKind::Other, "Invalid Form Boundary")), Ok)?;
     // Make the first boundary start with a newline to simplify parsing
     (&mut buf[..2]).copy_from_slice(b"\r\n");
     let mut read_start = 2;
