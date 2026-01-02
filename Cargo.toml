@@ -25,7 +25,7 @@ diesel_migrations = "2.2"
 chrono = "0.4.42"
 argon2 = "0.4"
 urlencoding = "2.1"
-streaming-zip = "0.5.0"
+streaming-zip-async = { path = "streaming-zip-async" }
 dashmap = "6.1"
 
 [features]

@@ -19,7 +19,8 @@ where P: AsRef<Path> {
     let upload_path = storage_path.as_ref().join(id_string);
     if upload_path.exists() {
         // Note: ID generation avoids collisions by checking the
-        // filesystem, so we remove the upload directory last.
+        // filesystem, so we remove the upload directory AFTER removing
+        // everything else.
         Upload::delete_with_id(id, db_connection);
         if let Err(e) = std::fs::remove_dir_all(&upload_path) {
             eprintln!("Error deleting {:?}: {}", upload_path, e);
@@ -35,7 +36,7 @@ fn cleanup_thread(
         let storage_path = storage_path.clone();
         let db_url = db_url.clone();
 
-        thread::spawn(move || cleanup(read_timeout_ms, storage_path, db_backend, db_url));
+        cleanup(read_timeout_ms, storage_path, db_backend, db_url);
 
         thread::sleep(Duration::from_secs(CLEANUP_DELAY_SECS));
     }

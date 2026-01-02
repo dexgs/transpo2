@@ -1,5 +1,6 @@
 use crate::multipart_form::{self, *};
 use crate::b64;
+use crate::files;
 use crate::files::*;
 use crate::constants::*;
 use crate::config::*;
@@ -13,7 +14,7 @@ use crate::cleanup::delete_upload;
 use std::{cmp, fs, str};
 use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::net::IpAddr;
 use std::time;
 use rand::{thread_rng, Rng};
@@ -27,7 +28,7 @@ use tokio::io::AsyncWriteExt;
 use smol::prelude::*;
 use smol::io::{AsyncReadExt};
 
-use blocking::{unblock, Unblock};
+use blocking::unblock;
 
 use smol_timeout::TimeoutExt;
 
@@ -77,8 +78,11 @@ enum UploadError {
 }
 
 impl From<Error> for UploadError {
-    fn from(_: Error) -> Self {
-        Self::Other
+    fn from(e: Error) -> Self {
+        match e.kind() {
+            ErrorKind::InvalidInput => Self::Protocol,
+            _ => Self::Other
+        }
     }
 }
 
@@ -297,31 +301,6 @@ impl UploadForm {
 }
 
 
-enum Writer {
-    Basic(Unblock<FileWriter>),
-    EncryptedZip(Unblock<EncryptedZipWriter>)
-}
-
-impl Writer {
-    async fn write(&mut self, buf: &[u8]) -> Result<()> {
-        match self {
-            Writer::Basic(writer) => {
-                writer.write_all(buf).await
-            },
-            Writer::EncryptedZip(writer) => {
-                writer.write_all(buf).await
-            }
-        }
-    }
-
-    async fn flush(&mut self) -> Result<()> {
-        match self {
-            Writer::Basic(writer) => writer.flush().await,
-            Writer::EncryptedZip(writer) => writer.flush().await
-        }
-    }
-}
-
 fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
     // Note: we check the filesystem to avoid duplicate upload IDs.
     let mut rng = thread_rng();
@@ -464,6 +443,245 @@ async fn websocket_read_loop(
     Err(UploadError::Protocol)
 }
 
+
+struct UploadFormParser<R>
+where R: AsyncReadExt + Unpin
+{
+    buf: [u8; FORM_READ_BUFFER_SIZE],
+    read_start: usize,
+    parse_start: usize,
+
+    field_buf: [u8; FORM_FIELD_BUFFER_SIZE],
+    field_start: usize,
+    field_type: FormField,
+
+    boundary: String,
+    boundary_byte_map: [u8; 256],
+    upload_form: UploadForm,
+    timeout_duration: time::Duration,
+    reader: R
+}
+
+impl<R> UploadFormParser<R>
+where R: AsyncReadExt + Unpin
+{
+    fn new(
+        boundary: String, upload_form: UploadForm,
+        timeout_duration: time::Duration, reader: R) -> Option<Self>
+    {
+        let boundary_byte_map = byte_map(boundary.as_bytes())?;
+
+        let mut new = Self {
+            buf: [0; FORM_READ_BUFFER_SIZE],
+            read_start: 0,
+            parse_start: 0,
+
+            field_buf: [0; FORM_FIELD_BUFFER_SIZE],
+            field_start: 0,
+            field_type: FormField::Invalid,
+
+            boundary,
+            boundary_byte_map,
+            upload_form,
+            timeout_duration,
+            reader
+        };
+
+        // Make the first boundary start with a newline to simplify parsing
+        new.buf[..2].copy_from_slice(b"\r\n");
+        new.read_start = 2;
+
+        Some(new)
+    }
+
+    async fn parse_form<P>(&mut self, upload_path: P, max_upload_size: usize)
+        -> std::result::Result<(Option<Vec<u8>>, Vec<u8>, Vec<u8>), UploadError>
+    where P: AsRef<Path>
+    {
+        if let (upload_form, ParseResult::NewValue(_, cd, ct, val)) = self.next_file().await? {
+            let file_name_str = get_file_name(cd).ok_or(UploadError::Protocol)?;
+            let mime_type_str = ct;
+            // https://datatracker.ietf.org/doc/html/rfc4288#section-4.2
+            if mime_type_str.len() > 255 || mime_type_str.is_empty() {
+                return Err(UploadError::Protocol);
+            }
+
+            let server_side_processing = upload_form.server_side_processing == Some(true);
+            let (key, file_name, mime_type) = if server_side_processing {
+                // Server-side encrypted + zipped upload
+                let (mut writer, key, file_name, mime_type) =
+                    AsyncEncryptedZipWriter::new(upload_path, max_upload_size).await?;
+                files::Writer::start_new_file(&mut writer, file_name_str).await?;
+                files::Writer::write(&mut writer, val).await?;
+                self.parse_form_with_writer(writer).await?;
+                (Some(key), file_name, mime_type)
+            } else {
+                // Client-side encrypted upload
+                let file_name = file_name_str.as_bytes().to_owned();
+                let mime_type = mime_type_str.as_bytes().to_owned();
+                let mut writer = AsyncFileWriter::new(&upload_path, max_upload_size).await?;
+                files::Writer::write(&mut writer, val).await?;
+                self.parse_form_with_writer(writer).await?;
+                (None, file_name, mime_type)
+            };
+
+            return Ok((key, file_name, mime_type));
+        }
+
+        Err(UploadError::Protocol)
+    }
+    
+    async fn parse_form_with_writer<W>(&mut self, mut writer: W)
+        -> std::result::Result<(), UploadError>
+    where W: files::Writer
+    {
+        loop {
+            match self.next_file().await?.1 {
+                ParseResult::NewValue(_, cd, _, val) => {
+                    let file_name_str = get_file_name(cd).ok_or(UploadError::Protocol)?;
+                    files::Writer::finish_file(&mut writer).await?;
+                    files::Writer::start_new_file(&mut writer, file_name_str).await?;
+                    files::Writer::write(&mut writer, val).await?;
+                },
+                ParseResult::Continue(val) => {
+                    files::Writer::write(&mut writer, val).await?;
+                },
+                ParseResult::Finished => {
+                    files::Writer::finish(writer).await?;
+                    return Ok(());
+                },
+                // This branch is unreachable (see next_file)
+                _ => panic!()
+            }
+        }
+    }
+
+    // Return the next parse result relating to a file, and implicitly collect
+    // any other fields into upload_form.
+    //
+    // Returns ParseResult::
+    //  NewValue, when a new file begins
+    //  Continue, for more file contents
+    //  Finished, when the form is finished
+    //
+    // Ugly implementation, but it handles receiving the form fields in any
+    // order nicely.
+    async fn next_file<'a>(&'a mut self)
+        -> std::result::Result<(&'a UploadForm, ParseResult<'a>), UploadError>
+    {
+        loop {
+            let buf = &mut self.buf[..self.read_start];
+ 
+            while buf.len() - self.parse_start > self.boundary.len() {
+                let parse_result = multipart_form::parse(
+                    &buf[self.parse_start..], &self.boundary, &self.boundary_byte_map);
+                match parse_result {
+                    ParseResult::NewValue(b, cd, _, val) => {
+                        self.parse_start += b;
+
+                        // parse the value of the previous field
+                        if self.field_type != FormField::Files && self.field_type != FormField::Invalid {
+                            if !self.upload_form.parse_field(
+                                &self.field_type, &self.field_buf[..self.field_start])
+                            {
+                                return Err(UploadError::Protocol);
+                            }
+                        }
+
+                        self.field_type = match_content_disposition(cd);
+                        match self.field_type {
+                            FormField::Invalid => return Err(UploadError::Protocol),
+                            FormField::Files => {
+                                // See NOTE below
+                                let parse_result = unsafe {
+                                    std::mem::transmute::<ParseResult, ParseResult<'a>>(parse_result)
+                                };
+                                return Ok((&self.upload_form, parse_result));
+                            },
+                            _ => {
+                                if
+                                    self.upload_form.is_valid_field(&self.field_type)
+                                    && val.len() <= self.field_buf.len()
+                                {
+                                    // Start parsing new field
+                                    self.field_buf[..val.len()].copy_from_slice(val);
+                                    self.field_start = val.len();
+                                } else {
+                                    // Form field invalid/too large
+                                    return Err(UploadError::Protocol);
+                                }
+                            }
+                        }
+                    },
+                    ParseResult::Continue(val) => match self.field_type {
+                        FormField::Invalid => return Err(UploadError::Protocol),
+                        FormField::Files => {
+                            self.parse_start += val.len();
+                            // NOTE!
+                            // We should *really* be able to do the following:
+                            // return Ok(parse_result);
+                            // The borrow checker is (currently) not smart
+                            // enough to realize that the borrow of `buf` is
+                            // valid for lifetime 'a if we return here since
+                            // that means there will be no further iterations
+                            // of the loop.
+                            let parse_result = unsafe {
+                                std::mem::transmute::<ParseResult, ParseResult<'a>>(parse_result)
+                            };
+                            return Ok((&self.upload_form, parse_result));
+                        }
+                        _ => {
+                            if self.field_start + val.len() <= self.field_buf.len() {
+                                self.field_buf[self.field_start..][..val.len()].copy_from_slice(val);
+                                self.field_start += val.len();
+                                self.parse_start += val.len();
+                            } else {
+                                // Form field is too big
+                                return Err(UploadError::Protocol);
+                            }
+                        }
+                    },
+                    ParseResult::NeedMoreData => break,
+                    ParseResult::Finished => {
+                        // parse the value of the previous field
+                        if self.field_type != FormField::Files && self.field_type != FormField::Invalid {
+                            if !self.upload_form.parse_field(
+                                &self.field_type, &self.field_buf[..self.field_start])
+                            {
+                                return Err(UploadError::Protocol);
+                            }
+                        }
+
+                        return Ok((&self.upload_form, ParseResult::Finished))
+                    },
+                    ParseResult::Error => return Err(UploadError::Protocol),
+                }
+            }
+
+            // The buffer may contain incomplete data at the end, so we copy it
+            // to the front of the buffer and make sure the next read *appends*
+            // to it without overwriting it.
+            if self.parse_start != 0 {
+                buf.copy_within(self.parse_start.., 0);
+            }
+            self.read_start = buf.len() - self.parse_start;
+            self.parse_start = 0;
+
+            // Read more data
+            let bytes_read = self.reader
+                .read(&mut self.buf[self.read_start..])
+                .timeout(self.timeout_duration).await
+                .unwrap_or(Err(Error::from(ErrorKind::TimedOut)))?;
+            if bytes_read == 0 {
+                return Err(UploadError::Cancelled);
+            } else {
+                self.read_start += bytes_read;
+            }
+        }
+    }
+}
+
+
 pub async fn handle_post(
     mut conn: Conn, config: Arc<TranspoConfig>, translation: Translation,
     db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Conn
@@ -490,11 +708,9 @@ pub async fn handle_post(
 
     let upload_path = upload_dir.join("upload");
 
-    let mut file_writer: Option<Writer> = None;
-    let mut key: Option<Vec<u8>> = None;
-
     let query = UploadQuery::new(conn.querystring());
 
+    let mut key = None;
     let (mut form, mut file_name, mut mime_type) = if let Some(
         (minutes, max_downloads, password, file_name, mime_type))
         = query.and_then(|q| q.get_values())
@@ -521,13 +737,21 @@ pub async fn handle_post(
     }
 
     let req_body = conn.request_body().await;
-    let parse_result = parse_upload_form(
-        req_body, boundary, &upload_path, &mut form, &mut file_writer, &mut key,
-        &mut file_name, &mut mime_type, config.clone(), quotas_data).await;
+    let timeout_duration = time::Duration::from_millis(
+        config.read_timeout_milliseconds as u64);
+    let mut parser = UploadFormParser::new(boundary, form, timeout_duration, req_body).unwrap();
+    let parse_result = parser.parse_form(upload_path, config.max_upload_size_bytes).await;
     let parse_success = match parse_result {
-        Ok(result) => result,
+        Ok((form_key, form_file_name, form_mime_type)) => {
+            key = form_key;
+            file_name = Some(form_file_name);
+            mime_type = Some(form_mime_type);
+            true
+        },
         Err(_) => false
     };
+    let form = parser.upload_form;
+
 
     let is_password_protected = form.is_password_protected();
 
@@ -601,249 +825,6 @@ async fn is_storage_full(config: Arc<TranspoConfig>) -> Result<bool> {
     }).await
 }
 
-async fn parse_upload_form<R>(
-    mut req_body: R, boundary: String, upload_path: &PathBuf,
-    form: &mut UploadForm, file_writer: &mut Option<Writer>,
-    key: &mut Option<Vec<u8>>, file_name: &mut Option<Vec<u8>>,
-    mime_type: &mut Option<Vec<u8>>, config: Arc<TranspoConfig>,
-    quotas_data: Option<(Quotas, IpAddr)>) -> Result<bool>
-where R: AsyncReadExt + Unpin
-{
-    if is_storage_full(config.clone()).await? {
-        return Err(Error::new(ErrorKind::QuotaExceeded, "Storage capacity exceeded"));
-    }
-
-    let timeout_duration = time::Duration::from_millis(
-        config.read_timeout_milliseconds as u64);
-    let mut upload_success = false;
-    let mut buf = [0; FORM_READ_BUFFER_SIZE];
-    let boundary_byte_map = byte_map(boundary.as_bytes())
-        .map_or_else(|| Err(Error::new(ErrorKind::Other, "Invalid Form Boundary")), Ok)?;
-    // Make the first boundary start with a newline to simplify parsing
-    (&mut buf[..2]).copy_from_slice(b"\r\n");
-    let mut read_start = 2;
-
-    let mut field_type = FormField::Invalid;
-    // Form fields other than files are expected to fit in this buffer.
-    // If they do not, error 400 will be returned.
-    let mut field_buf = [0; FORM_FIELD_BUFFER_SIZE];
-    let mut field_write_start = 0;
-
-    let mut bytes_read_interval = 0;
-
-    'outer: while let Some(Ok(bytes_read)) = req_body
-        .read(&mut buf[read_start..])
-        .timeout(timeout_duration).await
-    {
-        if bytes_read == 0 {
-            break 'outer;
-        }
-
-        if let Some(true) = quotas_data.as_ref().map(
-            |(q, a)| q.exceeds_quota(a, bytes_read))
-        {
-            return Err(Error::new(ErrorKind::Other, "Quota exceeded"));
-        }
-
-        bytes_read_interval += bytes_read;
-        if bytes_read_interval > STORAGE_CHECK_INTERVAL {
-            bytes_read_interval = 0;
-            if is_storage_full(config.clone()).await? {
-                return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
-            }
-        }
-
-        // Make sure buf does not contain data from the previous read
-        let buf = &mut buf[..(bytes_read + read_start)];
-
-        // Parse over the buffer until either parsing ends, or we run out of data
-        // i.e. we hit either the end of the buffer or a string of bytes that may
-        // or may not be a boundary and we can't be sure until we read more data
-        let mut parse_start = 0;
-        while buf.len() - parse_start > boundary.len() {
-            let parse_result = multipart_form::parse(
-                &buf[parse_start..], &boundary, &boundary_byte_map);
-            match parse_result {
-                // The start of a new field in the form
-                ParseResult::NewValue(b, cd, ct, val) => {
-                    parse_start += b;
-
-                    // parse the value of the previous field
-                    if field_type != FormField::Files && field_type != FormField::Invalid {
-                        if !form.parse_field(&field_type, &field_buf[..field_write_start]) {
-                            return Err(Error::new(
-                                    ErrorKind::InvalidData,
-                                    "Error parsing form field"));
-                        }
-                    }
-
-                    // handle the new field
-                    let new_field_type = match_content_disposition(cd);
-                    match new_field_type {
-                        FormField::Invalid => {
-                            return Err(Error::new(
-                                    ErrorKind::InvalidData,
-                                    "Error invalid form field type"));
-                        },
-                        FormField::Files => {
-                            let server_side_processing = match form.server_side_processing {
-                                None | Some(false) => false,
-                                Some(true) => true
-                            };
-
-                            let is_first_file = file_writer.is_none();
-
-                            match handle_file_start(cd, ct, &upload_path, file_writer,
-                                                    server_side_processing,
-                                                    config.max_upload_size_bytes,
-                                                    config.compression_level).await
-                            {
-                                Ok((k, f, m)) => {
-                                    if is_first_file {
-                                        *key = k;
-                                        *file_name = f;
-                                        *mime_type = m;
-                                    }
-                                },
-                                Err(_) => {
-                                    return Err(Error::new(
-                                            ErrorKind::InvalidData,
-                                            "File upload started when not allowed"));
-                                }
-                            }
-
-                            match file_writer {
-                                Some(writer) => {
-                                    writer.write(val).await?;
-                                },
-                                None => {
-                                    return Err(Error::new(
-                                            ErrorKind::InvalidData,
-                                            "Cannot write file contents without writer"));
-                                }
-                            }
-                        },
-                        _ => {
-                            if form.is_valid_field(&new_field_type)
-                            && val.len() <= field_buf.len()
-                            {
-                                // copy new data into the field buffer
-                                (&mut field_buf[..val.len()]).copy_from_slice(val);
-                                field_write_start = val.len();
-                            } else {
-                                return Err(Error::new(
-                                        ErrorKind::InvalidData,
-                                        "Invalid form field contents"));
-                            }
-                        }
-                    }
-
-                    field_type = new_field_type;
-                },
-                // The continuation of the value of the previous field
-                ParseResult::Continue(val) => {
-                    parse_start += val.len();
-
-                    match field_type {
-                        FormField::Invalid => {
-                            return Err(Error::new(
-                                    ErrorKind::InvalidData,
-                                    "Error invalid form field type"));
-                        },
-                        FormField::Files => match file_writer {
-                            Some(writer) => {
-                                writer.write(val).await?;
-                            },
-                            None => {
-                                return Err(Error::new(
-                                        ErrorKind::InvalidData,
-                                        "Cannot write file contents without writer"));
-                            }
-                        },
-                        _ => {
-                            if field_write_start + val.len() <= field_buf.len() {
-                                // copy new data into the field buffer
-                                (&mut field_buf[field_write_start..][..val.len()])
-                                    .copy_from_slice(val);
-                                field_write_start += val.len();
-                            } else {
-                                return Err(Error::new(
-                                        ErrorKind::Other,
-                                        "Form field is too big"));
-                            }
-                        }
-                    }
-                },
-                // The end of the form
-                ParseResult::Finished => {
-                    if field_type != FormField::Invalid {
-                        // parse the value of the previous field, if it wasn't
-                        // the contents of the upload
-                        if field_type != FormField::Files {
-                            upload_success = form.parse_field(&field_type, &field_buf[..field_write_start]);
-                        } else {
-                            upload_success = true;
-                        }
-
-                        if let Some(mut writer) = file_writer.take() {
-                            upload_success = writer.flush().await.is_ok() && upload_success;
-
-                            match writer {
-                                Writer::EncryptedZip(writer) => {
-                                    // Finish the Zip archive by writing the
-                                    // end of central directory record
-                                    let mut inner_writer = writer.into_inner().await;
-                                    unblock::<Result<()>, _>(move || {
-                                        inner_writer.finish_file()?;
-                                        inner_writer.finish()?;
-                                        Ok(())
-                                    }).await?;
-                                },
-                                _ => {}
-                            }
-                        }
-
-                        if is_storage_full(config.clone()).await? {
-                            return Err(Error::new(ErrorKind::Other, "Storage capacity exceeded"));
-                        }
-                    }
-
-                    break 'outer;
-                },
-                ParseResult::NeedMoreData => {
-                    if parse_start == 0 && buf.len() == FORM_READ_BUFFER_SIZE {
-                        // The buffer is not big enough for another read without
-                        // discarding any data. This is *very* unlikely to
-                        // happen for a legitimate upload and not possible to
-                        // handle without allocating arbitrary amounts of
-                        // memory.
-                        return Err(Error::new(
-                                ErrorKind::Other,
-                                "Form field is too big"));
-                    } else {
-                        break;
-                    }
-                },
-                // An error
-                ParseResult::Error => {
-                    return Err(Error::new(
-                            ErrorKind::Other,
-                            "Parse error"));
-                }
-            }
-        }
-
-        // The buffer may contain incomplete data at the end, so we copy it to
-        // the front of the buffer and make sure it doesn't get read over
-        if parse_start != 0 {
-            buf.copy_within(parse_start.., 0);
-        }
-        read_start = buf.len() - parse_start;
-    }
-
-    Ok(upload_success)
-}
-
 
 // Read the multipart form boundary out of the headers
 fn get_boundary<'a>(conn: &'a Conn) -> Option<&'a str> {
@@ -875,75 +856,6 @@ fn get_file_name(cd: &str) -> Option<&str> {
         None
     }
 }
-
-// Return writer, key, file name, mime type
-async fn handle_file_start(
-    cd: &str, ct: &str, upload_path: &PathBuf, file_writer: &mut Option<Writer>,
-    server_side_processing: bool,
-    max_upload_size: usize,
-    compression_level: usize) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)>
-{
-    let file_name_str = match get_file_name(cd) {
-        Some(file_name) => Ok(file_name),
-        None => Err(Error::from(ErrorKind::InvalidInput))
-    }?;
-
-    let mime_type_str = ct;
-    // https://datatracker.ietf.org/doc/html/rfc4288#section-4.2
-    if mime_type_str.len() > 255 {
-        return Err(Error::new(ErrorKind::InvalidInput, "Mime type is too long"));
-    } else if mime_type_str.is_empty() {
-        return Err(Error::new(ErrorKind::InvalidInput, "Mime type is empty"));
-    }
-
-    match file_writer {
-        Some(writer) => {
-            if let Writer::EncryptedZip(writer) = writer {
-                // New file for existing multi-file upload
-                let file_name_str = file_name_str.to_owned();
-
-                writer.with_mut::<Result<()>, _>(move |writer| {
-                    writer.finish_file()?;
-                    writer.start_new_file(&file_name_str)?;
-                    Ok(())
-                }).await?;
-
-                return Ok((None, None, None));
-            }
-        },
-        None => {
-            if server_side_processing {
-                // Multi-file server-side encrypted upload. Server-side
-                // encrypted uploads are always zipped.
-                let (mut inner_writer, key, file_name, mime_type)
-                    = EncryptedZipWriter::new(
-                        &upload_path, max_upload_size,
-                        compression_level as u8)?;
-                let file_name_str = file_name_str.to_owned();
-
-                let inner_writer = unblock::<Result<Unblock<EncryptedZipWriter>>, _>(move || {
-                    inner_writer.start_new_file(&file_name_str)?;
-                    Ok(Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer))
-                }).await;
-
-                *file_writer = Some(Writer::EncryptedZip(inner_writer?));
-                return Ok((Some(key), Some(file_name), Some(mime_type)));
-            } else {
-                // Single file upload with client-side processing
-                let file_name = Some(file_name_str.as_bytes().to_owned());
-                let mime_type = Some(mime_type_str.as_bytes().to_owned());
-                let inner_writer = FileWriter::new(&upload_path, max_upload_size)?;
-                let inner_writer = Unblock::with_capacity(FORM_READ_BUFFER_SIZE, inner_writer);
-
-                *file_writer = Some(Writer::Basic(inner_writer));
-                return Ok((None, file_name, mime_type));
-            }
-        }
-    }
-
-    Err(Error::from(ErrorKind::Other))
-}
-
 
 // Insert the metadata for an upload into the database. Return the number of
 // affected rows (or None if there was an error)

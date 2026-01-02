@@ -43,98 +43,105 @@ pub enum ParseResult<'a> {
 //
 // `boundary` MUST begin with "\r\n--"
 pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[u8]) -> ParseResult<'a>
-where B: AsRef<[u8]>
+    where B: AsRef<[u8]>
 {
     let boundary = boundary.as_ref();
 
-    if let Some(buf) = buf.strip_prefix(boundary) {
-        // This is either the end of the form or the start of a new form field
-        if buf.starts_with(TERMINATOR) {
-            // This is the end of the form
-            ParseResult::Finished
-        } else {
-            // Extract the content-disposition and content-type from the value,
-            // or return early if the form is malformed or potentially cut off
-            // by the end of the buffer, requiring another read.
-            let parse_result = try_strip_prefix(buf, NEWLINE, NEWLINE_BYTE_MAP)
-                .and_then(|buf| try_strip_prefix(buf, CD_PREFIX, CD_PREFIX_BYTE_MAP))
-                .and_then(|buf| Ok((buf, try_find_subslice(buf, NEWLINE, NEWLINE_BYTE_MAP)?)))
-                .and_then(|(buf, cd_len)| {
-                    let after_cd = &buf[(cd_len + NEWLINE.len())..];
-                    match try_strip_prefix(after_cd, CT_PREFIX, CT_PREFIX_BYTE_MAP) {
-                        Err(ParseResult::NeedMoreData) => {
-                            // There is possibly an incomplete Content-Type prefix
-                            return Err(ParseResult::NeedMoreData)
-                        },
-                        Err(ParseResult::Error) => {
-                            // There is no Content-Type
-                            Ok((buf, cd_len, false, 0))
-                        },
-                        Ok(after_cd) => {
-                            // There is a Content-Type
-                            let ct_len = try_find_subslice(after_cd, NEWLINE, NEWLINE_BYTE_MAP)?;
-                            Ok((buf, cd_len, true, ct_len))
-                        }
-                        // This case will not happen (see `try_strip_prefix`).
-                        // It is only here to appease the compiler.
-                        _ => Err(ParseResult::Error)
-                    }});
-
-            let (buf, cd_len, has_ct, ct_len) = match parse_result {
-                Ok(values) => values,
-                Err(result) => return result
-            };
-
-            // This is a new field in the form
-
-            // New fields always have a Content-Disposition
-            let cd_str = match str::from_utf8(&buf[..cd_len]) {
-                Ok(cd_str) => cd_str,
-                Err(_) => return ParseResult::Error
-            };
-            let cd_total_len = CD_PREFIX.len() + cd_len + NEWLINE.len();
-
-            // New fields do *not* always have a Content-Type
-            //
-            // We *DON'T* use cd_total_len here because it includes the length
-            // of CD_PREFIX which is stripped off the value of `buf` in this
-            // scope!
-            let (ct_str, ct_total_len) = if has_ct {
-                let ct_total_len = CT_PREFIX.len() + ct_len + 2 * NEWLINE.len();
-                // Length of the contents of buf that come before the content type
-                let before_len = cd_len + NEWLINE.len() + CT_PREFIX.len();
-                let ct_str = match str::from_utf8(&buf[before_len..][..ct_len]) {
-                    Ok(ct_str) => ct_str,
-                    Err(_) => return ParseResult::Error
-                };
-                (ct_str, ct_total_len)
-            } else {
-                // When there is no Content-Type, there is still a blank line
-                ("", NEWLINE.len())
-            };
-
-            let value_start_index = cd_len + NEWLINE.len() + ct_total_len;
-            if value_start_index < buf.len() {
-                let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
-                let value_len = find_value_len(value, boundary, boundary_byte_map);
-
-                let leading_len = boundary.len()
-                    + NEWLINE.len()
-                    + cd_total_len
-                    + ct_total_len;
-
-                ParseResult::NewValue(
-                    leading_len + value_len,
-                    cd_str, ct_str,
-                    &value[..value_len])
-            } else {
-                ParseResult::Error
-            }
+    let buf = match buf.strip_prefix(boundary) {
+        Some(buf) => buf,
+        None => {
+            // Return early if this is the continuation of the value of the
+            // previous field
+            let value_len = find_value_len(buf, boundary, boundary_byte_map);
+            return ParseResult::Continue(&buf[..value_len]);
         }
+    };
+
+    // This is either the end of the form or the start of a new form field
+    // TODO: use try strip prefix here!!! I think there is a bug where we
+    // can error out (improperly) if the buffer ends with a partial terminator,
+    // but need a test to know for sure!!!!
+    if buf.starts_with(TERMINATOR) {
+        // This is the end of the form
+        return ParseResult::Finished;
+    }
+
+    // Extract the content-disposition and content-type from the value,
+    // or return early if the form is malformed or potentially cut off
+    // by the end of the buffer, requiring another read.
+    let parse_result = try_strip_prefix(buf, NEWLINE, NEWLINE_BYTE_MAP)
+        .and_then(|buf| try_strip_prefix(buf, CD_PREFIX, CD_PREFIX_BYTE_MAP))
+        .and_then(|buf| Ok((buf, try_find_subslice(buf, NEWLINE, NEWLINE_BYTE_MAP)?)))
+        .and_then(|(buf, cd_len)| {
+            let after_cd = &buf[(cd_len + NEWLINE.len())..];
+            match try_strip_prefix(after_cd, CT_PREFIX, CT_PREFIX_BYTE_MAP) {
+                Err(ParseResult::NeedMoreData) => {
+                    // There is possibly an incomplete Content-Type prefix
+                    return Err(ParseResult::NeedMoreData)
+                },
+                Err(ParseResult::Error) => {
+                    // There is no Content-Type
+                    Ok((buf, cd_len, false, 0))
+                },
+                Ok(after_cd) => {
+                    // There is a Content-Type
+                    let ct_len = try_find_subslice(after_cd, NEWLINE, NEWLINE_BYTE_MAP)?;
+                    Ok((buf, cd_len, true, ct_len))
+                }
+                // This case will not happen (see `try_strip_prefix`).
+                // It is only here to appease the compiler.
+                _ => Err(ParseResult::Error)
+            }});
+
+    let (buf, cd_len, has_ct, ct_len) = match parse_result {
+        Ok(values) => values,
+        Err(result) => return result
+    };
+
+    // This is a new field in the form
+
+    // New fields always have a Content-Disposition
+    let cd_str = match str::from_utf8(&buf[..cd_len]) {
+        Ok(cd_str) => cd_str,
+        Err(_) => return ParseResult::Error
+    };
+    let cd_total_len = CD_PREFIX.len() + cd_len + NEWLINE.len();
+
+    // New fields do *not* always have a Content-Type
+    //
+    // We *DON'T* use cd_total_len here because it includes the length
+    // of CD_PREFIX which is stripped off the value of `buf` in this
+    // scope!
+    let (ct_str, ct_total_len) = if has_ct {
+        let ct_total_len = CT_PREFIX.len() + ct_len + 2 * NEWLINE.len();
+        // Length of the contents of buf that come before the content type
+        let before_len = cd_len + NEWLINE.len() + CT_PREFIX.len();
+        let ct_str = match str::from_utf8(&buf[before_len..][..ct_len]) {
+            Ok(ct_str) => ct_str,
+            Err(_) => return ParseResult::Error
+        };
+        (ct_str, ct_total_len)
     } else {
-        // This is the continuation of the value of the previous field
-        let value_len = find_value_len(buf, boundary, boundary_byte_map);
-        ParseResult::Continue(&buf[..value_len])
+        // When there is no Content-Type, there is still a blank line
+        ("", NEWLINE.len())
+    };
+
+    let value_start_index = cd_len + NEWLINE.len() + ct_total_len;
+    if value_start_index < buf.len() {
+        let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
+        let value_len = find_value_len(value, boundary, boundary_byte_map);
+
+        let leading_len = boundary.len()
+            + NEWLINE.len()
+            + cd_total_len
+            + ct_total_len;
+
+        ParseResult::NewValue(
+            leading_len + value_len,
+            cd_str, ct_str,
+            &value[..value_len])
+    } else {
+        ParseResult::Error
     }
 }
 

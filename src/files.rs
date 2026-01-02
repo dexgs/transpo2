@@ -2,20 +2,20 @@ use crate::b64;
 use crate::random_bytes::*;
 use crate::constants::*;
 
-use std::io::{Result, Error, ErrorKind, BufWriter, Write, SeekFrom};
+use std::io::{Result, Error, ErrorKind, SeekFrom};
 use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::{NaiveDateTime, Local};
 use std::cmp;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::future::Future;
-use std::path::{PathBuf, Path};
+use std::path::Path;
 use std::pin::{pin, Pin};
 use std::str;
 use std::task::{Poll, Context};
 // use std::time::Duration;
-use streaming_zip::*;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncSeekExt};
+use streaming_zip_async;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, AsyncSeekExt};
 use tokio::time::sleep;
 
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
@@ -29,48 +29,21 @@ fn nonce_bytes_from_count(count: &u64) -> [u8; 12] {
 
 // Writers
 
-// Write to a single file. `start_new_file` can only be called once, calling it
-// multiple times returns an error
-pub struct FileWriter {
-    writer: BufWriter<File>,
-    max_upload_size: usize,
-    bytes_written: usize,
-}
+pub trait Writer {
+    async fn write<B>(&mut self, bytes: B) -> Result<()> where B: AsRef<[u8]>;
 
-impl FileWriter {
-    pub fn new(path: &PathBuf, max_upload_size: usize) -> Result<Self>
-    {
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?;
-
-        let new = Self {
-            writer: BufWriter::new(file),
-            max_upload_size,
-            bytes_written: 0
-        };
-
-        Ok(new)
-    }
-}
-
-impl Write for FileWriter {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-        self.bytes_written += bytes.len();
-        if self.bytes_written > self.max_upload_size {
-            return Err(other_error("Maximum upload size exceeded"));
-        }
-
-        self.writer.write_all(bytes)?;
-        Ok(bytes.len())
+    async fn start_new_file(&mut self, _name: &str) -> Result<()> {
+        Err(Error::new(ErrorKind::InvalidInput, "This writer cannot start new files"))
     }
 
-    fn flush(&mut self) -> Result<()> {
-        self.writer.flush()
+    async fn finish_file(&mut self) -> Result<()> {
+        Err(Error::new(ErrorKind::InvalidInput, "This writer cannot finish files"))
+    }
+
+    async fn finish(self) -> Result<()> where Self: Sized {
+        Ok(())
     }
 }
-
 
 pub struct AsyncFileWriter {
     writer: tokio::io::BufWriter<tokio::fs::File>,
@@ -115,33 +88,25 @@ impl AsyncWrite for AsyncFileWriter {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
-        pin!(&mut self.as_mut().writer).poll_flush(cx)
+        pin!(&mut self.writer).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
-        pin!(&mut self.as_mut().writer).poll_shutdown(cx)
+        pin!(&mut self.writer).poll_shutdown(cx)
     }
 }
 
-
-// Wrap a FileWriter such that the data written is encrypted with the given key.
-// Also encrypts the file name and mime type.
-//
-// The encrypted file is written as follows:
-// - It is divided into segments of varying lengths
-//   (but no longer than MAX_CHUNK_SIZE)
-// - Each segment is prefixed by a 16-bit unsigned integer in big-endian byte
-//   order which stores the length of the segment
-// - The file ends with two zero bytes not belonging to any segment.
-//
-pub struct EncryptedFileWriter {
-    writer: FileWriter,
-    cipher: Aes256Gcm,
-    buffer: Vec<u8>,
-    count: u64
+impl Writer for AsyncFileWriter {
+    async fn write<B>(&mut self, bytes: B) -> Result<()>
+        where B: AsRef<[u8]>
+    {
+        self.write_all(bytes.as_ref()).await?;
+        Ok(())
+    }
 }
+
 
 fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> Result<Vec<u8>> {
     let nonce_bytes = nonce_bytes_from_count(count);
@@ -153,137 +118,244 @@ fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> Result<V
     }
 }
 
-impl EncryptedFileWriter {
-    // Return the writer + the b64 encoded key, encrypted file name and encrypted mime type
-    pub fn new(path: &PathBuf, max_upload_size: usize, name: &str, mime: &str) -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
+// Wrap a FileWriter such that the data written is encrypted with the given key.
+// Also encrypts the file name and mime type.
+//
+// The encrypted file is written as follows:
+// - It is divided into segments of varying lengths
+//   (but no longer than MAX_CHUNK_SIZE)
+// - Each segment is prefixed by a 16-bit unsigned integer in big-endian byte
+//   order which stores the length of the segment
+// - The file ends with two zero bytes not belonging to any segment.
+pub struct AsyncEncryptedFileWriter {
+    writer: AsyncFileWriter,
+    cipher: Aes256Gcm,
+    buffer: Vec<u8>,
+    buffer_write_start: usize,
+    size_prefix_start: u8,
+    plaintext_len: usize,
+    count: u64
+}
+
+impl AsyncEncryptedFileWriter {
+    pub async fn new<P>(path: P, max_upload_size: usize, name: &str, mime: &str)
+        -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
+    where P: AsRef<Path>
     {
         let mut key_slice = [0; 32];
         random_bytes(&mut key_slice);
+
         let encoded_key = b64::base64_encode(&key_slice);
         let key = Key::from_slice(&key_slice);
+
         let cipher = Aes256Gcm::new(key);
-        let writer = FileWriter::new(path, max_upload_size)?;
+        let writer = AsyncFileWriter::new(path, max_upload_size).await?;
         let mut count = 0;
 
         let name_cipher = b64::base64_encode(&encrypt_string(&cipher, name, &mut count)?);
         let mime_cipher = b64::base64_encode(&encrypt_string(&cipher, mime, &mut count)?);
 
-        let new = Self {
-            writer: writer,
-            cipher: cipher,
+        let this = Self {
+            writer,
+            cipher,
             buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
-            count: count
+            buffer_write_start: 0,
+            size_prefix_start: 0,
+            plaintext_len: 0,
+            count
         };
-
-        Ok((new, encoded_key, name_cipher, mime_cipher))
+        
+        Ok((this, encoded_key, name_cipher, mime_cipher))
     }
 
-    pub fn finish(&mut self) -> Result<()> {
-        // Make sure the file is terminated by two zero bytes
-        self.writer.write(&0u16.to_be_bytes())?;
+    // Returns Poll::Pending untill the full ciphertext is written
+    fn encrypt_and_write_buffer(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<usize>> {
+        if self.plaintext_len == 0 {
+            // Encrypt a new plaintext chunk
+
+            assert_eq!(self.buffer_write_start, 0);
+            assert_eq!(self.size_prefix_start, 0);
+            //self.buffer.reserve_exact(buf.len() * 2);
+            //self.buffer.extend_from_slice(&buf[..take]);
+            self.plaintext_len = self.buffer.len();
+
+            let nonce_bytes = nonce_bytes_from_count(&self.count);
+            let nonce = Nonce::from_slice(&nonce_bytes);
+            self.count += 1;
+
+            let this = self.as_mut().get_mut();
+            match this.cipher.encrypt_in_place(nonce, b"", &mut this.buffer) {
+                Ok(()) => if this.buffer.len() > MAX_CHUNK_SIZE {
+                    return Poll::Ready(Err(other_error("Plaintext too large")));
+                },
+                _ => {
+                    return Poll::Ready(Err(other_error("encrypt_in_place")));
+                }
+            }
+        }
+
+        // Write chunk size
+        if self.size_prefix_start < 2 {
+            let size_prefix = (self.buffer.len() as u16).to_be_bytes();
+            let this = self.as_mut().get_mut();
+            let f = pin!(&mut this.writer).poll_write(cx, &size_prefix[this.size_prefix_start as usize..]);
+            match f {
+                Poll::Ready(Ok(bytes_written)) => {
+                    self.size_prefix_start += bytes_written as u8;
+                    // If the full size prefix was not written
+                    if self.size_prefix_start < 2 {
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    }
+                },
+                _ => {
+                    return f;
+                }
+            };
+        }
+
+        // Write ciphertext
+        let this = self.as_mut().get_mut();
+        let f = pin!(&mut this.writer).poll_write(cx, &this.buffer[this.buffer_write_start..]);
+        match f {
+            Poll::Ready(Ok(bytes_written)) => {
+                // Check if the entire ciphertext was written
+                self.buffer_write_start += bytes_written;
+                if self.buffer_write_start >= self.buffer.len() {
+                    // Report the write size to the caller as the size of the
+                    // *plaintext* that was written
+                    let ready = Poll::Ready(Ok(self.plaintext_len));
+
+                    // reset state variables
+                    self.buffer.clear();
+                    self.buffer_write_start = 0;
+                    self.size_prefix_start = 0;
+                    self.plaintext_len = 0;
+
+                    ready
+                } else {
+                    // Return "pending" until the full ciphertext is written
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            }
+            _ => f
+        }
+    }
+
+    pub async fn finish(&mut self) -> Result<()> {
+        // Encrypt and write any remaining plaintext in the buffer
+        self.flush().await?;
+        // Write a chunk size of 0 to indicate the end of the file
+        self.writer.write_all(&0u16.to_be_bytes()).await?;
+        // Flush the underlying writer
+        self.writer.flush().await?;
         Ok(())
     }
 }
 
-// `buffer` is a resizable buffer for intermediate data required by the
-// encryption process.
-pub fn encrypted_write<W>(
-    plaintext: &[u8], buffer: &mut Vec<u8>, count: &mut u64, cipher: &Aes256Gcm, mut writer: W) -> Result<usize>
-where W: Write
-{
-    if plaintext.is_empty() {
-        return Ok(0);
+impl Writer for AsyncEncryptedFileWriter {
+    async fn write<B>(&mut self, bytes: B) -> Result<()>
+        where B: AsRef<[u8]>
+    {
+        AsyncWriteExt::write(self, bytes.as_ref()).await?;
+        Ok(())
     }
 
-    if buffer.capacity() < plaintext.len() * 2 {
-        buffer.reserve(plaintext.len() * 2 - buffer.len());
+    async fn finish(mut self) -> Result<()> {
+        AsyncEncryptedFileWriter::finish(&mut self).await
     }
+}
 
-    buffer.clear();
-    buffer.extend_from_slice(plaintext);
-
-    let nonce_bytes = nonce_bytes_from_count(count);
-    *count += 1;
-
-    match cipher.encrypt_in_place(Nonce::from_slice(&nonce_bytes), b"", buffer) {
-        Ok(()) => {
-            if buffer.len() <= MAX_CHUNK_SIZE {
-                let size_prefix = (buffer.len() as u16).to_be_bytes();
-                writer.write_all(&size_prefix)?;
-                writer.write_all(&buffer)?;
-                Ok(plaintext.len())
-            } else {
-                Err(other_error("Plaintext too large"))
+impl AsyncWrite for AsyncEncryptedFileWriter {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
+        -> Poll<Result<usize>>
+    {
+        if self.buffer.len() >= FORM_READ_BUFFER_SIZE {
+            match self.encrypt_and_write_buffer(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(_) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
             }
-        },
-        Err(_) => Err(other_error("encrypt_in_place"))
-    }
-}
-
-impl Write for EncryptedFileWriter {
-    fn write(&mut self, plaintext: &[u8]) -> Result<usize> {
-        encrypted_write(plaintext, &mut self.buffer, &mut self.count, &self.cipher, &mut self.writer)
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        self.writer.flush()
-    }
-}
-
-
-// Wrap an EncryptedFileWriter such that multiple files can be written into a
-// single archive. 
-pub struct EncryptedZipWriter {
-    writer: Archive<EncryptedFileWriter>,
-    compression: CompressionMode,
-}
-
-impl EncryptedZipWriter {
-    // Return the writer + the b64 encoded key, encrypted file name and encrypted mime type
-    pub fn new(path: &PathBuf, max_upload_size: usize, level: u8) -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)> {
-        let (inner_writer, key, name, mime) = EncryptedFileWriter::new(
-            path, max_upload_size, "", "application/zip")?;
-        if level > 9 {
-            return Err(Error::from(ErrorKind::InvalidInput));
-        }
-
-        let compression = if level == 0 {
-            CompressionMode::Store
         } else {
-            CompressionMode::Deflate(level)
-        };
+            let remaining = FORM_READ_BUFFER_SIZE - self.buffer.len();
+            let take = std::cmp::min(remaining, buf.len());
+            self.buffer.extend_from_slice(&buf[..take]);
+            Poll::Ready(Ok(take))
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+        -> Poll<Result<()>>
+    {
+        // The buffer is cleared when the ciphertext has been written
+        if self.buffer.len() > 0 {
+            match self.encrypt_and_write_buffer(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(_) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            }
+        } else {
+            pin!(&mut self.writer).poll_flush(cx)
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+        -> Poll<Result<()>>
+    {
+        pin!(&mut self.writer).poll_shutdown(cx)
+    }
+}
+
+
+pub struct AsyncEncryptedZipWriter {
+    writer: streaming_zip_async::Archive<AsyncEncryptedFileWriter>
+}
+
+impl AsyncEncryptedZipWriter {
+    pub async fn new<P>(path: P, max_upload_size: usize)
+        -> Result<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
+    where P: AsRef<Path>
+    {
+        let (inner_writer, key, name, mime) = AsyncEncryptedFileWriter::new(
+            path, max_upload_size, "", "application/zip").await?;
 
         let new = Self {
-            writer: Archive::new(inner_writer),
-            compression
+            writer: streaming_zip_async::Archive::new(inner_writer)
         };
 
         Ok((new, key, name, mime))
     }
-
-    pub fn start_new_file(&mut self, name: &str) -> Result<()> {
-        let now = Local::now().naive_utc();
-        self.writer.start_new_file(name.to_owned().into_bytes(), now, self.compression, true)
-    }
-
-    pub fn finish_file(&mut self) -> Result<()> {
-        self.writer.finish_file()
-    }
-
-    pub fn finish(self) -> Result<()> {
-        let mut inner_writer = self.writer.finish()?;
-        inner_writer.finish()?;
-        Ok(())
-    }
 }
 
-impl Write for EncryptedZipWriter {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-        self.writer.append_data(bytes)?;
-        Ok(bytes.len())
+impl Writer for AsyncEncryptedZipWriter {
+    async fn write<B>(&mut self, bytes: B) -> Result<()>
+        where B: AsRef<[u8]>
+    {
+        self.writer.append_data(bytes.as_ref()).await?;
+        Ok(())
     }
 
-    fn flush(&mut self) -> Result<()> {
+    async fn start_new_file(&mut self, name: &str) -> Result<()> {
+        let now = Local::now().naive_utc();
+        self.writer.start_new_file(
+            name.to_owned().into_bytes(), now, true).await?;
+        Ok(())
+    }
+
+    async fn finish_file(&mut self) -> Result<()> {
+        self.writer.finish_file().await?;
+        Ok(())
+    }
+
+    async fn finish(mut self) -> Result<()> {
+        self.finish_file().await?;
+        let inner_writer = self.writer.finish().await?;
+        inner_writer.finish().await?;
         Ok(())
     }
 }
@@ -449,7 +521,7 @@ fn poll_read_full<R>(
             let bytes_read = buf_len - readbuf.remaining();
             if bytes_read == 0 {
                 // Unexpected EOF
-                (0, Some(Poll::Ready(Err(other_error("Unexpected EOF")))))
+                (0, Some(Poll::Ready(Err(Error::from(ErrorKind::UnexpectedEof)))))
             } else if bytes_read < buf_len {
                 // Incomplete read
                 cx.waker().wake_by_ref();

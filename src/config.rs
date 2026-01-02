@@ -13,7 +13,6 @@ environment variables. The available options are as follows:
  -u / TRANSPO_MAX_UPLOAD_SIZE_BYTES      <number> : maximum size allowed for a single upload
  -s / TRANSPO_MAX_STORAGE_SIZE_BYTES     <number> : maximum total size of all uploads currently stored
  -p / TRANSPO_PORT                       <number> : port to which Transpo will bind
- -c / TRANSPO_COMPRESSION_LEVEL      <number 0-9> : gzip compression level to use when creating zip archives
  -q / TRANSPO_QUOTA_BYTES_TOTAL          <number> : maximum number of bytes a single IP address can upload
                                                     within the quota interval. (set to 0 to disable)
  -b / TRANSPO_QUOTA_BYTES_PER_MINUTE     <number> : number of bytes to refund to each quota per minute
@@ -36,7 +35,6 @@ pub struct TranspoConfig {
     pub max_upload_size_bytes: usize,
     pub max_storage_size_bytes: usize,
     pub port: usize,
-    pub compression_level: usize,
     pub quota_bytes_total: usize,
     pub quota_bytes_per_minute: usize,
     pub read_timeout_milliseconds: usize,
@@ -60,8 +58,6 @@ impl Default for TranspoConfig {
             max_storage_size_bytes: 100 * 1000 * 1000 * 1000,
 
             port: 8123,
-
-            compression_level: 0,
 
             // 0B (disabled)
             quota_bytes_total: 0,
@@ -145,10 +141,6 @@ impl TranspoConfig {
                 "-p" | "TRANSPO_PORT" => {
                     self.port = value.parse()
                         .expect("Parsing configured port");
-                },
-                "-c" | "TRANSPO_COMPRESSION_LEVEL" => {
-                    self.compression_level = value.parse()
-                        .expect("Parsing configured compression level");
                 },
                 "-q" | "TRANSPO_QUOTA_BYTES_TOTAL" => {
                     self.quota_bytes_total = value.parse()

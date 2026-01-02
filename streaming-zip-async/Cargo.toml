@@ -1,0 +1,12 @@
+[package]
+name = "streaming-zip-async"
+version = "0.5.0"
+edition = "2018"
+authors = ["The packet-capture Authors <oss@nyantec.com>"]
+license = "MirOS"
+description = "A library to create zip files on a non-seekable writer."
+
+[dependencies]
+chrono = "0.4"
+crc = "2.1"
+tokio = { version = "1.48", features = ["io-util"] }

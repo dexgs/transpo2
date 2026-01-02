@@ -3,12 +3,6 @@
 version = 4
 
 [[package]]
-name = "adler"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
-
-[[package]]
 name = "aead"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1199,15 +1193,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
-name = "miniz_oxide"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96590ba8f175222643a85693f33d26e9c8a015f599c216509b1a6894af675d34"
-dependencies = [
- "adler",
-]
-
-[[package]]
 name = "mio"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1877,14 +1862,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0873cb29201126440dcc78d0b1f5a13d917e78831778429a7920ca9c7f3dae1e"
 
 [[package]]
-name = "streaming-zip"
+name = "streaming-zip-async"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a40a504090414b4b048c5f02f2fb0fe2b3c862cf446bc1ab84aa239a05700dd8"
 dependencies = [
  "chrono",
  "crc",
- "miniz_oxide",
+ "tokio",
 ]
 
 [[package]]
@@ -2171,7 +2154,7 @@ dependencies = [
  "rand",
  "smol",
  "smol-timeout",
- "streaming-zip",
+ "streaming-zip-async",
  "tokio",
  "trillium",
  "trillium-askama",
