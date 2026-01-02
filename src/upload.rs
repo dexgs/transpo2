@@ -1,6 +1,5 @@
 use crate::multipart_form::{self, *};
 use crate::b64;
-use crate::files;
 use crate::files::*;
 use crate::constants::*;
 use crate::config::*;
@@ -511,8 +510,8 @@ where R: AsyncReadExt + Unpin
                 // Server-side encrypted + zipped upload
                 let (mut writer, key, file_name, mime_type) =
                     AsyncEncryptedZipWriter::new(upload_path, max_upload_size).await?;
-                files::Writer::start_new_file(&mut writer, file_name_str).await?;
-                files::Writer::write(&mut writer, val).await?;
+                writer.start_new_file(file_name_str).await?;
+                writer.write(val).await?;
                 self.parse_form_with_writer(writer).await?;
                 (Some(key), file_name, mime_type)
             } else {
@@ -520,7 +519,7 @@ where R: AsyncReadExt + Unpin
                 let file_name = file_name_str.as_bytes().to_owned();
                 let mime_type = mime_type_str.as_bytes().to_owned();
                 let mut writer = AsyncFileWriter::new(&upload_path, max_upload_size).await?;
-                files::Writer::write(&mut writer, val).await?;
+                Writer::write(&mut writer, val).await?;
                 self.parse_form_with_writer(writer).await?;
                 (None, file_name, mime_type)
             };
@@ -533,21 +532,21 @@ where R: AsyncReadExt + Unpin
     
     async fn parse_form_with_writer<W>(&mut self, mut writer: W)
         -> std::result::Result<(), UploadError>
-    where W: files::Writer
+    where W: Writer
     {
         loop {
             match self.next_file().await?.1 {
                 ParseResult::NewValue(_, cd, _, val) => {
                     let file_name_str = get_file_name(cd).ok_or(UploadError::Protocol)?;
-                    files::Writer::finish_file(&mut writer).await?;
-                    files::Writer::start_new_file(&mut writer, file_name_str).await?;
-                    files::Writer::write(&mut writer, val).await?;
+                    writer.finish_file().await?;
+                    writer.start_new_file(file_name_str).await?;
+                    writer.write(val).await?;
                 },
                 ParseResult::Continue(val) => {
-                    files::Writer::write(&mut writer, val).await?;
+                    writer.write(val).await?;
                 },
                 ParseResult::Finished => {
-                    files::Writer::finish(writer).await?;
+                    writer.finish().await?;
                     return Ok(());
                 },
                 // This branch is unreachable (see next_file)

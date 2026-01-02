@@ -158,7 +158,7 @@ impl AsyncEncryptedFileWriter {
         let this = Self {
             writer,
             cipher,
-            buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE * 2),
+            buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE + 16),
             buffer_write_start: 0,
             size_prefix_start: 0,
             plaintext_len: 0,
