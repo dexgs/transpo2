@@ -46,10 +46,6 @@ description in a sub-item
 - `-p` / `TRANSPO_PORT` `<number>`
   - The port to which Transpo will bind.
 
-- `-c` / `TRANSPO_COMPRESSION_LEVEL` `<number from 0 to 9 (inclusive)>`
-  - The gzip compression level Transpo will use when creating Zip archives on
-    the server. (0 disables compression)
-
 - `-q` / `TRANSPO_QUOTA_BYTES` `<number>`
   - The maximum number of bytes allowed to be uploaded by a single IP address
     within the given quota time period. (0 disables quotas)
