@@ -248,7 +248,7 @@ async fn get_response_for(
         // server-side decryption
         Some(key) => {
             let (reader, mut file_name, mime_type) =
-                AsyncEncryptedFileReader::new(
+                EncryptedFileReader::new(
                     &upload_path, start_index, upload.expire_after,
                     upload.is_completed, &key, upload.file_name.as_bytes(),
                     upload.mime_type.as_bytes()).await.ok()?;
@@ -271,7 +271,7 @@ async fn get_response_for(
         },
         // no server-side decryption
         None => {
-            let reader = AsyncFileReader::new(
+            let reader = FileReader::new(
                 &upload_path, start_index, upload.expire_after,
                 upload.is_completed).await.ok()?;
             let body = create_async_body_for(
