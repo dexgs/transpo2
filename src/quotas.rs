@@ -11,76 +11,23 @@ use crate::config::TranspoConfig;
 pub struct Quotas {
     max_bytes: usize,
     bytes_per_minute: usize,
-    quotas: Arc<DashMap<IpAddr, usize>>,
+    quotas: Arc<DashMap<IpAddr, Arc<Mutex<QuotaData>>>>
 }
 
 impl From<&TranspoConfig> for Quotas {
     fn from(config: &TranspoConfig) -> Self {
-        Self {
+        let this = Self {
             max_bytes: config.quota_bytes_total,
             bytes_per_minute: config.quota_bytes_per_minute,
             quotas: Arc::new(DashMap::new())
-        }
+        };
+        spawn_quotas_thread(this.clone());
+        this
     }
 }
 
 impl Quotas {
-    // Return whether or not writing the given amount of bytes would exceed
-    // the quota for the given address
-    pub fn exceeds_quota(&self, addr: &IpAddr, bytes: usize) -> bool {
-        let count = match self.quotas.get_mut(addr) {
-            Some(mut count) => {
-                *count += bytes;
-                *count
-            },
-            None => {
-                self.quotas.insert(addr.to_owned(), bytes);
-                bytes
-            }
-        };
-
-        count > self.max_bytes
-    }
-
-    fn replenish(&self) {
-        self.quotas.retain(|_, count| *count > self.bytes_per_minute);
-
-        for mut count in self.quotas.iter_mut() {
-            *count -= self.bytes_per_minute;
-        }
-    }
-}
-
-pub fn spawn_quotas_thread(quotas: Quotas) {
-    thread::spawn(move || quotas_thread(quotas));
-}
-
-fn quotas_thread(quotas: Quotas) {
-    loop {
-        thread::sleep(Duration::from_secs(60));
-        quotas.replenish();
-    }
-}
-
-#[derive(Clone)]
-pub struct NewQuotas {
-    max_bytes: usize,
-    bytes_per_minute: usize,
-    quotas: Arc<DashMap<IpAddr, Arc<Mutex<QuotaData>>>>
-}
-
-impl From<&TranspoConfig> for NewQuotas {
-    fn from(config: &TranspoConfig) -> Self {
-        Self {
-            max_bytes: config.quota_bytes_total,
-            bytes_per_minute: config.quota_bytes_per_minute,
-            quotas: Arc::new(DashMap::new())
-        }
-    }
-}
-
-impl NewQuotas {
-    pub fn get(&mut self, addr: IpAddr) -> Quota {
+    pub fn get(&self, addr: IpAddr) -> Quota {
         match self.quotas.entry(addr) {
             Entry::Occupied(e) => {
                 // Access an existing quota
@@ -89,21 +36,28 @@ impl NewQuotas {
                 Quota { mtx: Some(mtx) }
             },
             Entry::Vacant(e) => {
-                // Instantiate a new quota with 1 accessor and all bytes remaining
+                // Instantiate a new full quota with 1 accessor
                 let inner = QuotaData {
                     num_accessors: 1,
                     bytes_remaining: self.max_bytes,
                     max_bytes: self.max_bytes,
                     bytes_per_minute: self.bytes_per_minute,
-                    last_access: Instant::now(),
-                    addr,
-                    quotas: self.quotas.clone()
+                    last_access: Instant::now()
                 };
                 let mtx = Arc::new(Mutex::new(inner));
                 e.insert(mtx.clone());
                 Quota { mtx: Some(mtx) }
             }
         }
+    }
+
+    fn cleanup(&self) {
+        self.quotas.retain(|_, mtx| {
+            let mut quota = mtx.lock().unwrap();
+            quota.replenish();
+            // retain quotas that are being accessed, or are depleted
+            quota.num_accessors > 0 || quota.bytes_remaining < self.max_bytes
+        })
     }
 }
 
@@ -112,20 +66,22 @@ pub struct Quota {
 }
 
 impl Quota {
+    // A "dummy" quota which never runs out
+    pub fn unlimited() -> Self {
+        Self { mtx: None }
+    }
+
     pub fn lock<'a>(&'a self) -> QuotaGuard<'a> {
-        match &self.mtx {
-            Some(mtx) => QuotaGuard { guard: Some(mtx.lock().unwrap()) },
-            None => QuotaGuard { guard: None }
+        QuotaGuard {
+            guard: self.mtx.as_ref().map(|mtx| mtx.lock().unwrap())
         }
     }
 }
 
 impl Drop for Quota {
     fn drop(&mut self) {
-        let guard = self.lock();
-        if let Some(mut quota) = guard.guard {
+        if let Some(mut quota) = self.lock().guard {
             quota.release();
-            quota.quotas.remove_if(&quota.addr, |_, _| quota.num_accessors == 0);
         }
     }
 }
@@ -156,15 +112,13 @@ struct QuotaData {
     max_bytes: usize,
     bytes_per_minute: usize,
     num_accessors: usize,
-    last_access: Instant,
-    addr: IpAddr,
-    quotas: Arc<DashMap<IpAddr, Arc<Mutex<QuotaData>>>>
+    last_access: Instant
 }
 
 impl QuotaData {
     // Quota accounting
 
-    fn check(&mut self, num_bytes: usize) -> bool {
+    fn replenish(&mut self) {
         // replenish quota based on elapsed time
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_access);
@@ -172,7 +126,10 @@ impl QuotaData {
         self.bytes_remaining +=
             (elapsed.as_secs() as usize * self.bytes_per_minute) / 60;
         self.bytes_remaining = std::cmp::min(self.bytes_remaining, self.max_bytes);
+    }
 
+    fn check(&mut self, num_bytes: usize) -> bool {
+        self.replenish();
         self.bytes_remaining >= num_bytes
     }
 
@@ -193,4 +150,13 @@ impl QuotaData {
         assert!(self.num_accessors >= 1);
         self.num_accessors -= 1;
     }
+}
+
+fn spawn_quotas_thread(quotas: Quotas) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(60));
+            quotas.cleanup();
+        }
+    });
 }
