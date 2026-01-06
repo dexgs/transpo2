@@ -7,7 +7,7 @@ dialog {
     color: var(--text-fg);
 }
 
-h1#title::before {
+h1#title.mascot::before {
     display: block;
     width: 200px;
     height: 200px;
