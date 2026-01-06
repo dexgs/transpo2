@@ -189,7 +189,7 @@ where P: AsRef<Path>
         DbConnection::Sqlite(_) => path.join("migrations"),
 
         #[cfg(feature = "postgres")]
-        DbConnection::Postgres(_) => path.join("pg_migrations")
+        DbConnection::Pg(_) => path.join("pg_migrations")
     };
 
     let migrations = get_migrations(path);
