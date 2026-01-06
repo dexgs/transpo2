@@ -8,6 +8,7 @@ const CD_PREFIX_BYTE_MAP: &'static [u8] = &byte_map(CD_PREFIX).unwrap();
 const CT_PREFIX: &'static [u8] = b"Content-Type: ";
 const CT_PREFIX_BYTE_MAP: &'static [u8] = &byte_map(CT_PREFIX).unwrap();
 const TERMINATOR: &'static [u8] = b"--"; // Come with me if you want to live.
+const TERMINATOR_BYTE_MAP: &'static [u8] = &byte_map(TERMINATOR).unwrap();
 const NEWLINE: &'static [u8] = b"\r\n";
 const NEWLINE_BYTE_MAP: &'static [u8] = &byte_map(NEWLINE).unwrap();
 
@@ -57,13 +58,12 @@ pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[u8]) -> Par
         }
     };
 
-    // This is either the end of the form or the start of a new form field
-    // TODO: use try strip prefix here!!! I think there is a bug where we
-    // can error out (improperly) if the buffer ends with a partial terminator,
-    // but need a test to know for sure!!!!
-    if buf.starts_with(TERMINATOR) {
+    match try_strip_prefix(buf, TERMINATOR, TERMINATOR_BYTE_MAP) {
         // This is the end of the form
-        return ParseResult::Finished;
+        Ok(_) => return ParseResult::Finished,
+        // This is *possibly* the end of the form
+        Err(ParseResult::NeedMoreData) => return ParseResult::NeedMoreData,
+        _ => {}
     }
 
     // Extract the content-disposition and content-type from the value,
