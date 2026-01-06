@@ -11,6 +11,7 @@ mod constants;
 mod db;
 mod cleanup;
 mod quotas;
+mod storage_limit;
 mod http_errors;
 mod translations;
 
@@ -24,6 +25,7 @@ use templates::*;
 use concurrency::*;
 use cleanup::*;
 use quotas::*;
+use storage_limit::*;
 
 use std::env;
 use std::fs;
@@ -41,8 +43,8 @@ const X_REAL_IP: &'static str = "X-Real-IP";
 
 const WS_UPLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
     max_send_queue: Some(1),
-    max_message_size: Some(FORM_READ_BUFFER_SIZE * 2),
-    max_frame_size: Some(FORM_READ_BUFFER_SIZE * 2),
+    max_message_size: Some(FORM_READ_BUFFER_SIZE + 64),
+    max_frame_size: Some(FORM_READ_BUFFER_SIZE + 64),
     accept_unmasked_frames: false
 };
 
@@ -54,7 +56,8 @@ struct TranspoState {
     config: Arc<TranspoConfig>,
     translations: Arc<Translations>,
     accessors: Accessors,
-    quotas: Option<Quotas>
+    quotas: Option<Quotas>,
+    storage_limit: StorageLimit
 }
 
 fn main() {
@@ -81,11 +84,6 @@ fn main() {
         let config = Arc::new(config);
         let translations = Arc::new(translations);
 
-        spawn_cleanup_thread(
-            config.read_timeout_milliseconds,
-            config.storage_dir.to_owned(),
-            db_backend, config.db_url.to_owned());
-
         trillium_main(config, translations, db_backend);
     } else {
         eprintln!("A database connection is required!");
@@ -93,8 +91,12 @@ fn main() {
     }
 }
 
-fn get_quotas_data(quotas: Option<Quotas>, headers: &Headers) -> Option<(Quotas, IpAddr)> {
-    quotas.and_then(|q| Some((q, addr_from_headers(headers)?)))
+fn get_quota(quotas: Option<Quotas>, headers: &Headers) -> Quota {
+    let addr = addr_from_headers(headers);
+    match addr.zip(quotas) {
+        Some((addr, quotas)) => quotas.get(addr),
+        None => Quota::unlimited()
+    }
 }
 
 fn addr_from_headers(headers: &Headers) -> Option<IpAddr> {
@@ -151,22 +153,28 @@ fn trillium_main(
     config: Arc<TranspoConfig>,
     translations: Arc<Translations>, db_backend: db::DbBackend)
 {
+    let accessors = Accessors::new();
+
     let quotas = if config.quota_bytes_total == 0 {
         None
     } else {
         Some(Quotas::from(config.as_ref()))
     };
-    let accessors = Accessors::new();
 
-    if let Some(quotas) = quotas.clone() {
-        spawn_quotas_thread(quotas);
-    }
+    let storage_limit = StorageLimit::from(config.as_ref());
+
+    spawn_cleanup_thread(
+        config.read_timeout_milliseconds,
+        config.storage_dir.to_owned(),
+        storage_limit.clone(),
+        db_backend, config.db_url.to_owned());
 
     let s = TranspoState {
         config: config.clone(),
         translations: translations.clone(),
         accessors: accessors.clone(),
-        quotas: quotas.clone(),
+        quotas,
+        storage_limit
     };
 
     let router = Router::new()
@@ -199,15 +207,17 @@ fn trillium_main(
         .post("/upload", (state(s.clone()), move |mut conn: Conn| { async move {
             let (config, _, translation, _) = get_config(&conn);
             let state = conn.take_state::<TranspoState>().unwrap();
-            let quotas_data = get_quotas_data(state.quotas, conn.headers());
+            let quota = get_quota(state.quotas, conn.headers());
+            let storage_limit = state.storage_limit;
 
-            upload::handle_post(conn, config, translation, db_backend, quotas_data).await
+            upload::handle_post(conn, config, quota, storage_limit, translation, db_backend).await
         }}))
         .get("/upload", (state(s.clone()), websocket(move |mut conn: WebSocketConn| { async move {
             let state = conn.take_state::<TranspoState>().unwrap();
-            let quotas_data = get_quotas_data(state.quotas, conn.headers());
+            let quota = get_quota(state.quotas, conn.headers());
+            let storage_limit = state.storage_limit;
 
-            drop(upload::handle_websocket(conn, state.config, db_backend, quotas_data).await)
+            drop(upload::handle_websocket(conn, state.config, db_backend, quota, storage_limit).await)
         }}).with_protocol_config(WS_UPLOAD_CONFIG)))
         .get("/:file_id", (state(s.clone()), move |conn: Conn| { async move {
             let file_id = conn.param("file_id").unwrap().to_owned();
@@ -250,7 +260,7 @@ fn trillium_main(
             let state = conn.take_state::<TranspoState>().unwrap();
 
             download::info(
-                conn, file_id, state.config,
+                conn, file_id, state.config, state.storage_limit,
                 state.accessors, translation, db_backend).await
         }}))
         .get("/:file_id/dl", (state(s.clone()), move |mut conn: Conn| { async move {
@@ -259,7 +269,7 @@ fn trillium_main(
             let state = conn.take_state::<TranspoState>().unwrap();
 
             download::handle(
-                conn, file_id, config, state.accessors, translation, db_backend).await
+                conn, file_id, config, state.storage_limit, state.accessors, translation, db_backend).await
         }}))
         .get("/clear-data", move |conn: Conn| { async move {
             conn

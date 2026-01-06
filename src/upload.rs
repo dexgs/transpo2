@@ -8,21 +8,19 @@ use crate::http_errors::*;
 use crate::templates::*;
 use crate::translations::*;
 use crate::quotas::*;
+use crate::storage_limit::*;
 use crate::cleanup::delete_upload;
 
 use std::{cmp, fs, str};
 use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
-use std::net::IpAddr;
 use std::time;
 use rand::{thread_rng, Rng};
 
 use trillium::Conn;
 use trillium_websockets::{WebSocketConn, Message, tungstenite::protocol::frame::coding::CloseCode};
 use trillium_askama::AskamaConnExt;
-
-use tokio::io::AsyncWriteExt;
 
 use smol::prelude::*;
 use smol::io::{AsyncReadExt};
@@ -39,9 +37,6 @@ use urlencoding::decode;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 
-
-// Make sure storage capacity is not exceeded after reading this many bytes
-const STORAGE_CHECK_INTERVAL: usize = 1024 * 1024 * 10;
 
 const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
@@ -80,6 +75,18 @@ impl From<Error> for UploadError {
     fn from(e: Error) -> Self {
         match e.kind() {
             ErrorKind::InvalidInput => Self::Protocol,
+            _ => Self::Other
+        }
+    }
+}
+
+impl From<WriterError> for UploadError {
+    fn from(e: WriterError) -> Self {
+        match e {
+            WriterError::QuotaExceeded => Self::Quota,
+            WriterError::StorageLimitExceeded => Self::Storage,
+            WriterError::FileSizeLimitExceeded => Self::FileSize,
+            WriterError::NotSupported => Self::Protocol,
             _ => Self::Other
         }
     }
@@ -317,7 +324,7 @@ fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
 
 pub async fn handle_websocket(
     mut conn: WebSocketConn, config: Arc<TranspoConfig>,
-    db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Result<()>
+    db_backend: DbBackend, quota: Quota, storage_limit: StorageLimit) -> Result<()>
 {
     let query = UploadQuery::new(conn.querystring());
 
@@ -341,7 +348,7 @@ pub async fn handle_websocket(
             conn.send_string(upload_id_string.clone()).await;
 
             let upload_result = websocket_read_loop(
-                &mut conn, &upload_path, config.clone(), quotas_data).await;
+                &mut conn, &upload_path, config.clone(), quota, storage_limit.clone()).await;
 
             match upload_result {
                 Ok(()) => {
@@ -359,7 +366,8 @@ pub async fn handle_websocket(
                     }
                 },
                 Err(e) => {
-                    drop(conn.send(Message::Binary(vec![e as u8])).await);
+                    let code = e as u8;
+                    drop(conn.send(Message::Binary(vec![code])).await);
                 }
             }
         }
@@ -367,7 +375,7 @@ pub async fn handle_websocket(
 
         unblock(move || {
             let mut db_connection = establish_connection(db_backend, &config.db_url);
-            delete_upload(upload_id, &config.storage_dir, &mut db_connection);
+            delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut db_connection);
         }).await;
     }
 
@@ -376,17 +384,12 @@ pub async fn handle_websocket(
 }
 
 async fn websocket_read_loop(
-    conn: &mut WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
-    quotas_data: Option<(Quotas, IpAddr)>) -> std::result::Result<(), UploadError>
+    conn: &mut WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>, quota: Quota, storage_limit: StorageLimit)
+    -> std::result::Result<(), UploadError>
 {
-    if is_storage_full(config.clone()).await? {
-        return Err(UploadError::Storage);
-    }
-
     let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
-    let mut writer = AsyncFileWriter::new(
-        &upload_path, config.max_upload_size_bytes).await?;
-    let mut bytes_read_interval = 0;
+    let mut writer = AccountingFileWriter::new(
+        upload_path, config.max_upload_size_bytes, quota, storage_limit).await?;
 
     while let Some(Ok(msg)) = conn
         .next()
@@ -395,37 +398,15 @@ async fn websocket_read_loop(
     {
         match msg {
             Message::Binary(b) => {
-                if let Some(true) = quotas_data.as_ref().map(
-                    |(q, a)| q.exceeds_quota(a, b.len()))
-                {
-                    return Err(UploadError::Quota);
-                } else if b.len() > FORM_READ_BUFFER_SIZE * 2 {
+                if b.len() > FORM_READ_BUFFER_SIZE * 2 {
                     return Err(UploadError::Protocol);
                 } else {
-                    bytes_read_interval += b.len();
-                    if bytes_read_interval > STORAGE_CHECK_INTERVAL {
-                        bytes_read_interval = 0;
-
-                        if is_storage_full(config.clone()).await? {
-                            return Err(UploadError::Storage);
-                        }
-
-                        if !upload_path.exists() {
-                            return Err(UploadError::Other);
-                        }
-                    }
-
-                    if let Err(e) = writer.write_all(&b).await {
-                        return match e.kind() {
-                            ErrorKind::WriteZero => Err(UploadError::FileSize),
-                            _ => Err(UploadError::Other)
-                        };
-                    }
+                    Writer::write(&mut writer, &b).await?;
                 }
             },
             Message::Close(Some(closeframe)) => {
                 if closeframe.code == CloseCode::Normal {
-                    writer.flush().await?;
+                    writer.finish().await?;
                     return Ok(());
                 } else {
                     return Err(UploadError::Cancelled);
@@ -493,7 +474,8 @@ where R: AsyncReadExt + Unpin
         Some(new)
     }
 
-    async fn parse_form<P>(&mut self, upload_path: P, max_upload_size: usize)
+    async fn parse_form<P>(
+        &mut self, upload_path: P, quota: Quota, storage_limit: StorageLimit, max_upload_size: usize)
         -> std::result::Result<(Option<Vec<u8>>, Vec<u8>, Vec<u8>), UploadError>
     where P: AsRef<Path>
     {
@@ -505,11 +487,14 @@ where R: AsyncReadExt + Unpin
                 return Err(UploadError::Protocol);
             }
 
+            let mut inner_writer = AccountingFileWriter::new(
+                upload_path, max_upload_size, quota, storage_limit).await?;
+
             let server_side_processing = upload_form.server_side_processing == Some(true);
             let (key, file_name, mime_type) = if server_side_processing {
                 // Server-side encrypted + zipped upload
                 let (mut writer, key, file_name, mime_type) =
-                    AsyncEncryptedZipWriter::new(upload_path, max_upload_size).await?;
+                    EncryptedZipWriter::new(inner_writer).await?;
                 writer.start_new_file(file_name_str).await?;
                 writer.write(val).await?;
                 self.parse_form_with_writer(writer).await?;
@@ -518,9 +503,8 @@ where R: AsyncReadExt + Unpin
                 // Client-side encrypted upload
                 let file_name = file_name_str.as_bytes().to_owned();
                 let mime_type = mime_type_str.as_bytes().to_owned();
-                let mut writer = AsyncFileWriter::new(&upload_path, max_upload_size).await?;
-                Writer::write(&mut writer, val).await?;
-                self.parse_form_with_writer(writer).await?;
+                Writer::write(&mut inner_writer, val).await?;
+                self.parse_form_with_writer(inner_writer).await?;
                 (None, file_name, mime_type)
             };
 
@@ -682,8 +666,8 @@ where R: AsyncReadExt + Unpin
 
 
 pub async fn handle_post(
-    mut conn: Conn, config: Arc<TranspoConfig>, translation: Translation,
-    db_backend: DbBackend, quotas_data: Option<(Quotas, IpAddr)>) -> Conn
+    mut conn: Conn, config: Arc<TranspoConfig>, quota: Quota,
+    storage_limit: StorageLimit, translation: Translation, db_backend: DbBackend) -> Conn
 {
     // Get the boundary of the multi-part form
     let boundary = match get_boundary(&conn) {
@@ -725,7 +709,7 @@ pub async fn handle_post(
     // the current data in the form to the DB to allow the file to be downloaded
     // while it uploads. If the client did not include the needed information
     // in the query string, it must provide it in the form body which will be
-    // read by `parse_upload_form`.
+    // read by `parse_form`.
     if form.has_time_limit() {
         db_write_success = write_to_db(
             form, upload_id, file_name, mime_type,
@@ -739,7 +723,7 @@ pub async fn handle_post(
     let timeout_duration = time::Duration::from_millis(
         config.read_timeout_milliseconds as u64);
     let mut parser = UploadFormParser::new(boundary, form, timeout_duration, req_body).unwrap();
-    let parse_result = parser.parse_form(upload_path, config.max_upload_size_bytes).await;
+    let parse_result = parser.parse_form(upload_path, quota, storage_limit.clone(), config.max_upload_size_bytes).await;
     let parse_success = match parse_result {
         Ok((form_key, form_file_name, form_mime_type)) => {
             key = form_key;
@@ -811,17 +795,11 @@ pub async fn handle_post(
 
         unblock(move || {
             let mut db_connection = establish_connection(db_backend, &config.db_url);
-            delete_upload(upload_id, &config.storage_dir, &mut db_connection);
+            delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut db_connection);
         }).await;
 
         response
     }
-}
-
-async fn is_storage_full(config: Arc<TranspoConfig>) -> Result<bool> {
-    unblock(move || {
-        Ok(get_storage_size(&config.storage_dir)? > config.max_storage_size_bytes)
-    }).await
 }
 
 
