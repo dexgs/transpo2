@@ -52,26 +52,40 @@ function generateFileName(uploadID, mime) {
 // - `isFinished` whether or not the download is finished
 // Returns the number of chunks enqueued
 async function decryptBufferAndEnqueue(buffer, controller, key, state) {
+    // Fully consume `buffer` (the ciphertext) and decrypt as much as
+    // possible. Then, copy any leftovers to the start of `state.segment`
+    // and update `state.segmentWriteStart` so the next buffer gets inserted
+    // at the right place.
+
     let chunksEnqueued = 0;
-    // iterate while the segment buffer can be parsed OR there is still
-    // data avialable to read
-    let bytesRead = 0;
 
-    while (bytesRead < buffer.byteLength) {
+    let bufferReadStart = 0;
+    while (bufferReadStart < buffer.byteLength) {
         const remainingSegment = state.segment.byteLength - state.segmentWriteStart;
-        const remainingBuffer = buffer.byteLength - bytesRead;
+        const remainingBuffer = buffer.byteLength - bufferReadStart;
         const copyLen = Math.min(remainingSegment, remainingBuffer);
+        if (copyLen == 0) {
+            controller.error(new Error("copied 0 bytes from buffer"));
+            return;
+        }
 
-        state.segment.set(
-            buffer.slice(bytesRead, bytesRead + copyLen),
-            state.segmentWriteStart);
+        // Copy from `buffer` into `segment`
+        const copyFrom = buffer.slice(bufferReadStart, bufferReadStart + copyLen);
+        state.segment.set(copyFrom, state.segmentWriteStart);
         state.segmentWriteStart += copyLen;
-        bytesRead += copyLen;
+        bufferReadStart += copyLen;
 
-        while (state.segmentWriteStart >= 2) {
-            const segmentSize = state.segment[0] * 256 + state.segment[1];
+        let segmentReadStart = 0;
+        const segmentReadEnd = state.segmentWriteStart;
+
+        // Decrypt and enqueue as many plaintext chunks as we can
+        while (segmentReadStart + 2 <= segmentReadEnd) {
+            const segmentSize =
+                state.segment[segmentReadStart] * 256
+                + state.segment[segmentReadStart + 1];
 
             if (segmentSize == 0) {
+                // End of file indicated by zero-length segment
                 if (typeof controller.terminate == typeof undefined) {
                     controller.close();
                 } else {
@@ -79,22 +93,34 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
                 }
                 state.isFinished = true;
                 break;
-            } else if (state.segmentSize > maxCiphertextSegmentSize) {
-                controller.error(new Error("Invalid segment size"));
+            } else if (segmentSize > maxCiphertextSegmentSize) {
+                controller.error(new Error("Segment too big"));
                 break;
-            } else if (state.segmentWriteStart >= segmentSize + 2) {
-                const segmentCiphertext = state.segment.subarray(2, segmentSize + 2);
+            } else if (segmentReadStart + 2 + segmentSize > segmentReadEnd) {
+                // Segment is incomplete
+                break;
+            } else {
+                // Get the next ciphertext segment
+                const segmentStart = segmentReadStart + 2;
+                const segmentEnd = segmentStart + segmentSize;
+                const segmentCiphertext = state.segment.subarray(segmentStart, segmentEnd);
+
+                // Decrypt and enqueue
                 const segmentPlaintext = await decrypt(key, state.count, segmentCiphertext);
                 state.count++;
                 controller.enqueue(segmentPlaintext);
                 chunksEnqueued++;
 
-                const segmentEnd = segmentSize + 2;
-                state.segment.copyWithin(0, segmentEnd, state.segmentWriteStart);
-                state.segmentWriteStart -= segmentEnd;
-            } else {
-                break;
+                // Advance
+                segmentReadStart = segmentEnd;
             }
+        }
+
+        if (segmentReadStart > 0) {
+            // Move any "leftover" data to the start of the segment to make room
+            // for the next copy from `buffer` into segment
+            state.segment.copyWithin(0, segmentReadStart, state.segmentWriteStart);
+            state.segmentWriteStart -= segmentReadStart;
         }
     }
 
