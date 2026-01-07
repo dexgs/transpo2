@@ -121,17 +121,23 @@ async function decryptedStream(r, key) {
         const reader = r.body.getReader();
         stream = new ReadableStream({
             async pull(controller) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    controller.error(new Error("Download failed"));
-                } else {
-                    // `pull` is expected to enqueue _something_, so loop until
-                    // the download finishes, or we enqueue a non-zero number
-                    // of chunks
-                    while (!state.isFinished && await decryptBufferAndEnqueue(value, controller, key, state) == 0) {}
+                // `pull` is expected to enqueue _something_, so loop until
+                // the download finishes, or we enqueue a non-zero number
+                // of chunks
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        controller.error(new Error("Download failed"));
+                        break;
+                    } else {
+                        let n = await decryptBufferAndEnqueue(value, controller, key, state);
 
-                    if (state.isFinished) {
-                        controller.close();
+                        if (state.isFinished) {
+                            controller.close();
+                            break;
+                        } else if (n > 0) {
+                            break;
+                        }
                     }
                 }
             }
