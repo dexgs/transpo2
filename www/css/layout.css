@@ -164,7 +164,7 @@ ul#file-list > li > span.file-list-item-name {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-    align-items: start;
+    align-items: center;
     gap: 10px;
 }
 
