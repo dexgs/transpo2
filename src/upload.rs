@@ -307,7 +307,7 @@ impl UploadForm {
 }
 
 
-async fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
+async fn create_upload_storage_dir(storage_path: PathBuf) -> Result<(i64, String, PathBuf)> { 
     // Note: we check the filesystem to avoid duplicate upload IDs.
     let mut rng = StdRng::from_os_rng();
     loop {
@@ -316,8 +316,10 @@ async fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathB
 
         let dir = storage_path.join(&id_string);
         // This will fail if the directory already exists
-        if tokio::fs::create_dir(&dir).await.is_ok() {
-            return (id, id_string, dir);
+        match tokio::fs::create_dir(&dir).await {
+            Ok(()) => return Ok((id, id_string, dir)),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => {},
+            Err(e) => return Err(e)
         }
     }
 }
@@ -333,7 +335,7 @@ pub async fn handle_websocket(
     {
         let (upload_id, upload_id_string, upload_dir) = {
             let storage_path = config.storage_dir.clone();
-            create_upload_storage_dir(storage_path).await
+            create_upload_storage_dir(storage_path).await?
         };
 
         let upload_path = upload_dir.join("upload");
@@ -686,7 +688,10 @@ pub async fn handle_post(
 
     let (upload_id, upload_id_string, upload_dir) = {
         let storage_path = config.storage_dir.clone();
-        create_upload_storage_dir(storage_path).await
+        match create_upload_storage_dir(storage_path).await {
+            Ok(info) => info,
+            Err(_) => return error_400(conn, config, translation)
+        }
     };
 
     let upload_path = upload_dir.join("upload");
