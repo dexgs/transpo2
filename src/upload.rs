@@ -11,12 +11,12 @@ use crate::quotas::*;
 use crate::storage_limit::*;
 use crate::cleanup::delete_upload;
 
-use std::{cmp, fs, str};
+use std::{cmp, str};
 use std::io::{Result, Error, ErrorKind};
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::time;
-use rand::{thread_rng, Rng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use trillium::Conn;
 use trillium_websockets::{WebSocketConn, Message, tungstenite::protocol::frame::coding::CloseCode};
@@ -307,16 +307,16 @@ impl UploadForm {
 }
 
 
-fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
+async fn create_upload_storage_dir(storage_path: PathBuf) -> (i64, String, PathBuf) {
     // Note: we check the filesystem to avoid duplicate upload IDs.
-    let mut rng = thread_rng();
+    let mut rng = StdRng::from_os_rng();
     loop {
-        let id = rng.gen();
+        let id = rng.random();
         let id_string = String::from_utf8(b64::i64_to_b64_bytes(id)).unwrap();
 
         let dir = storage_path.join(&id_string);
         // This will fail if the directory already exists
-        if fs::create_dir(&dir).is_ok() {
+        if tokio::fs::create_dir(&dir).await.is_ok() {
             return (id, id_string, dir);
         }
     }
@@ -333,8 +333,8 @@ pub async fn handle_websocket(
     {
         let (upload_id, upload_id_string, upload_dir) = {
             let storage_path = config.storage_dir.clone();
-            unblock(|| create_upload_storage_dir(storage_path))
-        }.await;
+            create_upload_storage_dir(storage_path).await
+        };
 
         let upload_path = upload_dir.join("upload");
 
@@ -686,8 +686,8 @@ pub async fn handle_post(
 
     let (upload_id, upload_id_string, upload_dir) = {
         let storage_path = config.storage_dir.clone();
-        unblock(|| create_upload_storage_dir(storage_path))
-    }.await;
+        create_upload_storage_dir(storage_path).await
+    };
 
     let upload_path = upload_dir.join("upload");
 
