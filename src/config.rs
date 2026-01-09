@@ -23,6 +23,8 @@ environment variables. The available options are as follows:
  -m / TRANSPO_MIGRATIONS_DIRECTORY         <path> : path to the directory containing migration directories.
  -l / TRANSPO_DEFAULT_LANGUAGE           <string> : language code of default language.
  -T / TRANSPO_TRANSLATIONS_DIRECTORY       <path> : path to the translations directory.
+ --pool-max / TRANSPO_DB_POOL_MAX        <number> : maximum database pool connection count
+ --pool-min / TRANSPO_DB_POOL_MIN        <number> : minimum database pool *idle* connection count
  -n / TRANSPO_APP_NAME                   <string> : name shown in web interface
  -Q /                                             : quiet: do not print configuration on start
  -h /                                             : print this help message and exit
@@ -44,7 +46,10 @@ pub struct TranspoConfig {
     pub default_lang: String,
     pub translations_dir: PathBuf,
     pub app_name: String,
-    pub quiet: bool
+    pub quiet: bool,
+
+    pub max_db_pool_size: u32,
+    pub min_db_pool_idle: Option<u32>
 }
 
 impl Default for TranspoConfig {
@@ -79,7 +84,10 @@ impl Default for TranspoConfig {
 
             app_name: "Transpo".to_string(),
 
-            quiet: false
+            quiet: false,
+
+            max_db_pool_size: 10,
+            min_db_pool_idle: None
         }
     }
 }
@@ -172,6 +180,15 @@ impl TranspoConfig {
                 "-T" | "TRANSPO_TRANSLATIONS_DIRECTORY" => {
                     self.translations_dir = value.parse()
                         .expect("Parsing configured translations directory");
+                },
+                "--pool-max" | "TRANSPO_DB_POOL_MAX" => {
+                    self.max_db_pool_size = value.parse()
+                        .expect("Parsing configured maximum database pool connection count");
+                },
+                "--pool-min" | "TRANSPO_DB_POOL_MIN" => {
+                    self.min_db_pool_idle = Some(
+                        value.parse()
+                        .expect("Parsing configured minimum database pool idle connection count"));
                 },
                 "-n" | "TRANSPO_APP_NAME" => {
                     self.app_name = value.to_string();

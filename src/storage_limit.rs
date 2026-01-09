@@ -90,7 +90,7 @@ impl StorageLimitData {
     }
 
     fn deduct(&mut self, num_bytes: usize) {
-        self.storage_size -= num_bytes;
+        self.storage_size = self.storage_size.saturating_sub(num_bytes);
     }
 }
 

@@ -1,27 +1,14 @@
-use diesel::prelude::*;
-use diesel::sql_query;
-use diesel_migrations::*;
 use chrono::{NaiveDateTime, Local};
+use diesel::MultiConnection;
+use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool};
+use diesel_migrations::*;
 use std::path::Path;
 
+use crate::config::TranspoConfig;
 
-macro_rules! conn {
-    ($dbc:expr, $e:expr) => {
-        {
-            match $dbc {
-                #[cfg(feature = "mysql")]
-                DbConnection::Mysql(c) => $e(c),
 
-                #[cfg(feature = "postgres")]
-                DbConnection::Pg(c) => $e(c),
-
-                #[cfg(feature = "sqlite")]
-                DbConnection::Sqlite(c) => $e(c),
-            }
-        }
-    }
-}
-
+#[derive(MultiConnection)]
 pub enum DbConnection {
     #[cfg(feature = "mysql")]
     Mysql(MysqlConnection),
@@ -31,15 +18,25 @@ pub enum DbConnection {
     Sqlite(SqliteConnection)
 }
 
-#[derive(Clone, Copy)]
-pub enum DbBackend {
-    #[cfg(feature = "mysql")]
-    Mysql,
-    #[cfg(feature = "postgres")]
-    Pg,
-    #[cfg(feature = "sqlite")]
-    Sqlite
+// Helper macro for doing DB stuff from async code.
+// Requires `blocking::unblock` to be available in the current scope.
+// Example usage:
+// pool_unblock!(db_pool, c, Upload::set_is_completed(id, true, &mut c))
+macro_rules! pool_unblock {
+    ($pool:expr, $conn:ident, $($tail:tt)*) => {
+        unblock(move || {
+            let mut $conn = $pool.get().expect("Establishing database connection");
+            pool_unblock!(_ $conn, $($tail)*)
+        })
+    };
+    (_ $conn:ident, $($tail:tt)*) => {
+        pool_unblock!($($tail)*)
+    };
+    ($expr:expr) => { $expr };
+    ($block:block) => { $block };
+    ($stmt:stmt) => { $stmt };
 }
+pub(crate) use pool_unblock;
 
 #[derive(Debug)]
 #[derive(Queryable)]
@@ -77,11 +74,11 @@ diesel::table! {
 impl Upload {
     // Insert into DB, return number of modified rows, or None if there
     // was a problem.
-    pub fn insert(&self, db_connection: &mut DbConnection) -> Option<usize> {
+    pub fn insert(&self, c: &mut DbConnection) -> Option<usize> {
         let insert = diesel::insert_into(uploads::table)
             .values(self);
        
-        conn!(db_connection, |c| insert.execute(c)).ok()
+        insert.execute(c).ok()
     }
 
     // Return whether or not an Upload has expired, either based on time or
@@ -107,81 +104,67 @@ impl Upload {
     }
 
     // Return the Upload with the given ID
-    pub fn select_with_id(id: i64, db_connection: &mut DbConnection) -> Option<Self> {
+    pub fn select_with_id(id: i64, c: &mut DbConnection) -> Option<Self> {
         let select = uploads::table
             .filter(uploads::id.eq(id))
             .limit(1);
 
-        conn!(db_connection, |c| select.load::<Upload>(c)).ok()?.pop()
+        select.load::<Upload>(c).ok()?.pop()
     }
 
     // Decrement the number of remaining downloads on the row with the given ID. Return
     // the number of modified rows.
-    pub fn decrement_remaining_downloads(id: i64, db_connection: &mut DbConnection) -> Option<usize> {
+    pub fn decrement_remaining_downloads(id: i64, c: &mut DbConnection) -> Option<usize> {
         let target = uploads::table
             .filter(uploads::id.eq(id)
                 .and(uploads::remaining_downloads.is_not_null()));
         let update = diesel::update(target)
             .set(uploads::remaining_downloads.eq(uploads::remaining_downloads - 1));
 
-        conn!(db_connection, |c| update.execute(c)).ok()
+        update.execute(c).ok()
     }
 
-    pub fn set_is_completed(id: i64, is_completed: bool, db_connection: &mut DbConnection) -> Option<usize> {
+    pub fn set_is_completed(id: i64, is_completed: bool, c: &mut DbConnection) -> Option<usize> {
         let target = uploads::table
             .filter(uploads::id.eq(id));
 
         let update = diesel::update(target)
             .set(uploads::is_completed.eq(is_completed));
 
-        conn!(db_connection, |c| update.execute(c)).ok()
+        update.execute(c).ok()
     }
 
     // Delete the row with the given ID
-    pub fn delete_with_id(id: i64, db_connection: &mut DbConnection) -> Option<usize> {
+    pub fn delete_with_id(id: i64, c: &mut DbConnection) -> Option<usize> {
         let target = uploads::table
             .filter(uploads::id.eq(id));
         let delete = diesel::delete(target);
 
-        conn!(db_connection, |c| delete.execute(c)).ok()
+        delete.execute(c).ok()
     }
 
     // Return a list of IDs for expired (time-based) uploads
-    pub fn select_expired(db_connection: &mut DbConnection) -> Option<Vec<i64>> {
+    pub fn select_expired(c: &mut DbConnection) -> Option<Vec<i64>> {
         let now = Local::now().naive_utc();
         let select = uploads::table
             .filter(uploads::expire_after.lt(now))
             .select(uploads::id);
 
-        conn!(db_connection, |c| select.load::<i64>(c)).ok()
+        select.load::<i64>(c).ok()
     }
 
-    pub fn select_all(db_connection: &mut DbConnection) -> Option<Vec<i64>> {
+    pub fn select_all(c: &mut DbConnection) -> Option<Vec<i64>> {
         let select = uploads::table.select(uploads::id);
 
-        conn!(db_connection, |c| select.load::<i64>(c)).ok()
+        select.load::<i64>(c).ok()
     }
 }
 
-
-fn get_migrations<P>(path: P) -> FileBasedMigrations
-where P: AsRef<Path>
-{
-    /*
-    mark_migrations_in_directory(db_connection, path.as_ref())
-        .expect("Marking database migrations")
-        .into_iter()
-        .filter_map(|(m, is_applied)| if is_applied { None } else { Some(m) })
-        .collect()
-    */
-    FileBasedMigrations::from_path(path).expect("Opening DB migrations directory")
-}
-
-pub fn run_migrations<P>(db_connection: &mut DbConnection, path: P)
+pub fn run_migrations<P>(c: &mut DbConnection, path: P)
 where P: AsRef<Path>
 {
     let path = path.as_ref();
-    let path = match db_connection {
+    let path = match c {
         #[cfg(feature = "mysql")]
         DbConnection::Mysql(_) => path.join("migrations"),
 
@@ -192,51 +175,23 @@ where P: AsRef<Path>
         DbConnection::Pg(_) => path.join("pg_migrations")
     };
 
-    let migrations = get_migrations(path);
+    let migrations = FileBasedMigrations::from_path(path)
+        .expect("Opening DB migrations directory");
 
-    conn!(db_connection, |c| {
-        let mut harness = HarnessWithOutput::write_to_stdout(c);
-        harness.run_pending_migrations(migrations)
-            .expect("Running database migrations");
-    });
+    let mut harness = HarnessWithOutput::write_to_stdout(c);
+    harness.run_pending_migrations(migrations)
+        .expect("Running database migrations");
 }
 
-pub fn parse_db_backend(db_url: &str) -> Option<DbBackend> {
-    if db_url.starts_with("mysql://") {
-        #[cfg(feature = "mysql")]
-        return Some(DbBackend::Mysql);
-    } else if db_url.starts_with("postgresql://") {
-        #[cfg(feature = "postgres")]
-        return Some(DbBackend::Pg);
-    } else {
-        #[cfg(feature = "sqlite")]
-        return Some(DbBackend::Sqlite);
-    }
 
-    #[cfg(not(all(feature = "mysql", feature = "postgres", feature = "sqlite")))]
-    None
-}
-
-pub fn establish_connection(db_backend: DbBackend, db_url: &str) -> DbConnection {
-    match db_backend {
-        #[cfg(feature = "mysql")]
-        DbBackend::Mysql => DbConnection::Mysql(
-            MysqlConnection::establish(&db_url)
-            .expect("Establishing MySQL connection")),
-
-            #[cfg(feature = "postgres")]
-        DbBackend::Pg => DbConnection::Pg(
-            PgConnection::establish(&db_url)
-            .expect("Establishing PostgreSQL connection")),
-
-            #[cfg(feature = "sqlite")]
-        DbBackend::Sqlite => {
-            let mut connection = SqliteConnection::establish(&db_url)
-                .expect("Establishing SQLite connection");
-            let set_busy_timeout = sql_query("PRAGMA busy_timeout = 15000;");
-            set_busy_timeout.execute(&mut connection)
-                .expect("Setting busy timeout");
-            DbConnection::Sqlite(connection)
-        }
+pub type DbConnectionPool = Pool<ConnectionManager<DbConnection>>;
+impl From<&TranspoConfig> for DbConnectionPool {
+    fn from(config: &TranspoConfig) -> Self {
+        let manager = ConnectionManager::<DbConnection>::new(&config.db_url);
+        Pool::builder()
+            .max_size(config.max_db_pool_size)
+            .min_idle(config.min_db_pool_idle)
+            .build(manager)
+            .expect("Creating database connection pool")
     }
 }

@@ -29,7 +29,7 @@ where R: AsyncRead {
     reader: R,
     accessor_mutex: Option<AccessorMutex>,
     storage_limit: StorageLimit,
-    db_backend: DbBackend,
+    db_pool: Arc<DbConnectionPool>,
     config: Arc<TranspoConfig>
 }
 
@@ -40,22 +40,22 @@ where R: AsyncRead
         let config = self.config.clone();
         let storage_limit = self.storage_limit.clone();
         let accessor_mutex = self.accessor_mutex.take().unwrap();
-        let db_backend = self.db_backend.clone();
+        let db_pool = self.db_pool.clone();
         tokio::spawn(unblock(move || {
             let accessor = accessor_mutex.lock();
 
             // If we're the last accessor, then it's our responsibility to
             // clean up the upload if it is now invalid!
             if accessor.is_only_accessor() {
-                let mut db_connection = establish_connection(db_backend, &config.db_url);
+                let mut c = db_pool.get().expect("Establishing database connection");
 
-                let should_delete = match Upload::select_with_id(accessor.id, &mut db_connection) {
+                let should_delete = match Upload::select_with_id(accessor.id, &mut c) {
                     Some(upload) => upload.is_expired(),
                     None => true
                 };
 
                 if should_delete {
-                    delete_upload(accessor.id, &config.storage_dir, &storage_limit, &mut db_connection);
+                    delete_upload(accessor.id, &config.storage_dir, &storage_limit, &mut c);
                 }
             }
         }));
@@ -159,7 +159,7 @@ fn check_password(password: &Option<Vec<u8>>, upload: &Upload) -> bool {
 pub async fn info(
     conn: Conn, id_string: String, config: Arc<TranspoConfig>,
     storage_limit: StorageLimit, accessors: Accessors,
-    translation: Translation, db_backend: DbBackend) -> Conn
+    translation: Translation, db_pool: Arc<DbConnectionPool>) -> Conn
 {
     if id_string.len() != base64_encode_length(ID_LENGTH) {
         return error_404(conn, config, translation);
@@ -171,9 +171,8 @@ pub async fn info(
     let password = query.password;
 
     let config_ = config.clone();
-    let info = unblock(move || {
-        let mut db_connection = establish_connection(db_backend, &config_.db_url);
-        let upload = get_upload(id, &config_, &storage_limit, &accessors, &mut db_connection)?;
+    let info = pool_unblock!(db_pool, c, {
+        let upload = get_upload(id, &config_, &storage_limit, &accessors, &mut c)?;
         let upload_path = config_.storage_dir.join(&id_string).join("upload");
         let ciphertext_size = if upload.is_completed {
             std::fs::metadata(&upload_path).ok()?.len()
@@ -210,7 +209,8 @@ pub async fn info(
 
 async fn get_response_for(
     id_string: String, query: DownloadQuery, config: Arc<TranspoConfig>,
-    storage_limit: StorageLimit, accessors: Accessors, db_backend: DbBackend)
+    storage_limit: StorageLimit, accessors: Accessors,
+    db_pool: Arc<DbConnectionPool>)
     -> Option<(Body, String, String, usize)>
 {
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
@@ -222,10 +222,10 @@ async fn get_response_for(
     let (upload, accessor_mutex) = {
         let config = config.clone();
         let storage_limit = storage_limit.clone();
-        unblock(move || {
-            let mut db_connection = establish_connection(db_backend, &config.db_url);
+        let db_pool = db_pool.clone();
 
-            let upload: Upload = get_upload(id, &config, &storage_limit, &accessors, &mut db_connection)?;
+        pool_unblock!(db_pool, c, {
+            let upload = get_upload(id, &config, &storage_limit, &accessors, &mut c)?;
 
             // validate password
             if !check_password(&password, &upload) {
@@ -233,7 +233,7 @@ async fn get_response_for(
             }
 
             let accessor_mutex = accessors.access(id);
-            Upload::decrement_remaining_downloads(id, &mut db_connection)?;
+            Upload::decrement_remaining_downloads(id, &mut c)?;
 
             Some((upload, accessor_mutex))
         }).await?
@@ -265,7 +265,7 @@ async fn get_response_for(
             file_name = encode(&file_name).into_owned();
 
             let body = create_async_body_for(
-                reader, accessor_mutex, db_backend, config, storage_limit);
+                reader, accessor_mutex, db_pool, config, storage_limit);
 
             (body, file_name, mime_type)
         },
@@ -275,7 +275,7 @@ async fn get_response_for(
                 &upload_path, start_index, upload.expire_after,
                 upload.is_completed).await.ok()?;
             let body = create_async_body_for(
-                reader, accessor_mutex, db_backend, config, storage_limit);
+                reader, accessor_mutex, db_pool, config, storage_limit);
             (body, upload.file_name, upload.mime_type)
         }
     };
@@ -286,7 +286,7 @@ async fn get_response_for(
 pub async fn handle(
     conn: Conn, id_string: String, config: Arc<TranspoConfig>,
     storage_limit: StorageLimit, accessors: Accessors,
-    translation: Translation, db_backend: DbBackend) -> Conn
+    translation: Translation, db_pool: Arc<DbConnectionPool>) -> Conn
 {
     if id_string.len() != base64_encode_length(ID_LENGTH) {
         return error_404(conn, config, translation);
@@ -294,7 +294,7 @@ pub async fn handle(
 
     let query = parse_query(conn.querystring());
     let response = get_response_for(
-        id_string, query, config.clone(), storage_limit, accessors, db_backend).await;
+        id_string, query, config.clone(), storage_limit, accessors, db_pool).await;
     match response {
         Some((body, file_name, mime_type, ciphertext_size)) => {
             conn
@@ -313,7 +313,7 @@ pub async fn handle(
 
 fn create_async_body_for<R>(
     reader: R, accessor_mutex: AccessorMutex,
-    db_backend: DbBackend, config: Arc<TranspoConfig>,
+    db_pool: Arc<DbConnectionPool>, config: Arc<TranspoConfig>,
     storage_limit: StorageLimit) -> Body
 where R: AsyncRead + Unpin + Sync + Send + 'static
 {
@@ -321,7 +321,7 @@ where R: AsyncRead + Unpin + Sync + Send + 'static
         reader,
         accessor_mutex: Some(accessor_mutex),
         storage_limit,
-        db_backend,
+        db_pool,
         config
     };
 

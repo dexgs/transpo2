@@ -326,7 +326,7 @@ async fn create_upload_storage_dir(storage_path: PathBuf) -> Result<(i64, String
 
 pub async fn handle_websocket(
     mut conn: WebSocketConn, config: Arc<TranspoConfig>,
-    db_backend: DbBackend, quota: Quota, storage_limit: StorageLimit) -> Result<()>
+    db_pool: Arc<DbConnectionPool>, quota: Quota, storage_limit: StorageLimit) -> Result<()>
 {
     let query = UploadQuery::new(conn.querystring());
 
@@ -344,7 +344,7 @@ pub async fn handle_websocket(
 
         let db_write_succeeded = write_to_db(
             form, upload_id, file_name, mime_type,
-            db_backend, config.clone()).await.is_some();
+            db_pool.clone(), config.clone()).await.is_some();
 
         if db_write_succeeded {
             conn.send_string(upload_id_string.clone()).await;
@@ -355,7 +355,7 @@ pub async fn handle_websocket(
             match upload_result {
                 Ok(()) => {
                     let write_is_completed_success =
-                        write_is_completed(upload_id, db_backend, config.clone()).await.is_some();
+                        write_is_completed(upload_id, db_pool.clone()).await.is_some();
 
                     if write_is_completed_success {
                         // Don't handle error, since client may have already closed its
@@ -375,10 +375,8 @@ pub async fn handle_websocket(
         }
 
 
-        unblock(move || {
-            let mut db_connection = establish_connection(db_backend, &config.db_url);
-            delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut db_connection);
-        }).await;
+        pool_unblock!(db_pool, c,
+            delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut c)).await;
     }
 
     drop(conn.send(Message::Close(None)).await);
@@ -669,7 +667,7 @@ where R: AsyncReadExt + Unpin
 
 pub async fn handle_post(
     mut conn: Conn, config: Arc<TranspoConfig>, quota: Quota,
-    storage_limit: StorageLimit, translation: Translation, db_backend: DbBackend) -> Conn
+    storage_limit: StorageLimit, translation: Translation, db_pool: Arc<DbConnectionPool>) -> Conn
 {
     // Get the boundary of the multi-part form
     let boundary = match get_boundary(&conn) {
@@ -718,7 +716,7 @@ pub async fn handle_post(
     if form.has_time_limit() {
         db_write_success = write_to_db(
             form, upload_id, file_name, mime_type,
-            db_backend, config.clone()).await.is_some();
+            db_pool.clone(), config.clone()).await.is_some();
         file_name = None;
         mime_type = None;
         form = UploadForm::default();
@@ -748,12 +746,12 @@ pub async fn handle_post(
     if parse_success && !db_write_success {
         db_write_success = write_to_db(
             form, upload_id, file_name, mime_type,
-            db_backend, config.clone()).await.is_some();
+            db_pool.clone(), config.clone()).await.is_some();
     }
 
     // write that the upload is completed into the db
     let write_is_completed_success =
-        write_is_completed(upload_id, db_backend, config.clone()).await.is_some();
+        write_is_completed(upload_id, db_pool.clone()).await.is_some();
 
     let upload_success =
         parse_success
@@ -797,12 +795,8 @@ pub async fn handle_post(
         }
     } else {
         let response = error_400(conn, config.clone(), translation);
-
-        unblock(move || {
-            let mut db_connection = establish_connection(db_backend, &config.db_url);
-            delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut db_connection);
-        }).await;
-
+        pool_unblock!(db_pool, c,
+            delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut c)).await;
         response
     }
 }
@@ -843,7 +837,7 @@ fn get_file_name(cd: &str) -> Option<&str> {
 // affected rows (or None if there was an error)
 async fn write_to_db(
     form: UploadForm, id: i64, file_name: Option<Vec<u8>>, mime_type: Option<Vec<u8>>,
-    db_backend: DbBackend, config: Arc<TranspoConfig>) -> Option<usize>
+    db_pool: Arc<DbConnectionPool>, config: Arc<TranspoConfig>) -> Option<usize>
 {
 
     let time_limit_minutes = 
@@ -887,21 +881,11 @@ async fn write_to_db(
         is_completed: false
     };
 
-    unblock(move || {
-        let mut db_connection = establish_connection(db_backend, &config.db_url);
-        let num_modified_rows = upload.insert(&mut db_connection)?;
-
-        Some(num_modified_rows)
-    }).await
+    pool_unblock!(db_pool, c, upload.insert(&mut c)).await
 }
 
 async fn write_is_completed(
-    id: i64, db_backend: DbBackend, config: Arc<TranspoConfig>) -> Option<usize>
+    id: i64, db_pool: Arc<DbConnectionPool>) -> Option<usize>
 {
-    unblock(move || {
-        let mut db_connection = establish_connection(db_backend, &config.db_url);
-        let num_modified_rows = Upload::set_is_completed(id, true, &mut db_connection)?;
-
-        Some(num_modified_rows)
-    }).await
+    pool_unblock!(db_pool, c, Upload::set_is_completed(id, true, &mut c)).await
 }

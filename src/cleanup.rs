@@ -4,14 +4,15 @@ use crate::storage_limit::*;
 use std::thread;
 use std::time::{Duration, SystemTime};
 use std::path::{PathBuf, Path};
+use std::sync::Arc;
 
 const CLEANUP_DELAY_SECS: u64 = 60 * 60;
 
 pub fn spawn_cleanup_thread(
     read_timeout_ms: usize, storage_path: PathBuf, storage_limit: StorageLimit,
-    db_backend: DbBackend, db_url: String)
+    db_pool: Arc<DbConnectionPool>)
 {
-    thread::spawn(move || cleanup_thread(read_timeout_ms, storage_path, storage_limit, db_backend, db_url));
+    thread::spawn(move || cleanup_thread(read_timeout_ms, storage_path, storage_limit, db_pool));
 }
 
 pub fn delete_upload<P>(
@@ -43,25 +44,23 @@ where P: AsRef<Path> {
 
 fn cleanup_thread(
     read_timeout_ms: usize, storage_path: PathBuf, storage_limit: StorageLimit,
-    db_backend: DbBackend, db_url: String)
+    db_pool: Arc<DbConnectionPool>)
 {
     loop {
-        let storage_path = storage_path.clone();
-        let db_url = db_url.clone();
-
-        cleanup(read_timeout_ms, &storage_path, &storage_limit, db_backend, &db_url);
+        cleanup(read_timeout_ms, &storage_path, &storage_limit, db_pool.as_ref());
         thread::sleep(Duration::from_secs(CLEANUP_DELAY_SECS));
     }
 }
 
 fn cleanup(
-    read_timeout_ms: usize, storage_path: &PathBuf, storage_limit: &StorageLimit, db_backend: DbBackend, db_url: &str)
+    read_timeout_ms: usize, storage_path: &PathBuf,
+    storage_limit: &StorageLimit, db_pool: &DbConnectionPool)
 {
-    let mut db_connection = establish_connection(db_backend, db_url);
-
-    if let Some(expired_upload_ids) = Upload::select_expired(&mut db_connection) {
-        for id in expired_upload_ids {
-            delete_upload(id, storage_path, storage_limit, &mut db_connection);
+    if let Some(c) = db_pool.get().ok().as_mut() {
+        if let Some(expired_upload_ids) = Upload::select_expired(c) {
+            for id in expired_upload_ids {
+                delete_upload(id, storage_path, storage_limit, c);
+            }
         }
     }
 
@@ -79,7 +78,12 @@ fn cleanup(
                 .and_then(|(p, m)| Some((i64_from_b64_bytes(p.file_name()?.to_str()?.as_bytes())?, p, m)));
 
             if let Some((id, path, modified_time)) = entry_data {
-                if path.is_dir() && Upload::select_with_id(id, &mut db_connection).is_none() {
+                let mut c = match db_pool.get() {
+                    Ok(c) => c,
+                    Err(_) => continue
+                };
+
+                if path.is_dir() && Upload::select_with_id(id, &mut c).is_none() {
                     let now = SystemTime::now();
                     if let Ok(age_millis) = now.duration_since(modified_time).map(|d| d.as_millis()) {
                         // Depending on various factors, the modified_time
@@ -88,13 +92,13 @@ fn cleanup(
                         let write_deadline = 5000 + read_timeout_ms;
 
                         if age_millis as usize > write_deadline
-                            && Upload::select_with_id(id, &mut db_connection).is_none()
+                            && Upload::select_with_id(id, &mut c).is_none()
                         {
                             // NOTE: we DON'T want to update the storage limit in
                             // this case, because the files we're removing are
                             // NOT counted towards the storage limit, so subtracting
                             // their size could make the storage limit underflow!!!
-                            delete_upload(id, &storage_path, &StorageLimit::unlimited(), &mut db_connection);
+                            delete_upload(id, &storage_path, &StorageLimit::unlimited(), &mut c);
                         }
                     }
                 }

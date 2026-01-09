@@ -57,7 +57,8 @@ struct TranspoState {
     translations: Arc<Translations>,
     accessors: Accessors,
     quotas: Option<Quotas>,
-    storage_limit: StorageLimit
+    storage_limit: StorageLimit,
+    db_pool: Arc<db::DbConnectionPool>
 }
 
 fn main() {
@@ -77,18 +78,13 @@ fn main() {
     fs::create_dir_all(&config.storage_dir)
         .expect("Creating storage directory");
 
-    if let Some(db_backend) = db::parse_db_backend(&config.db_url) {
-        let mut db_connection = db::establish_connection(db_backend, &config.db_url);
-        db::run_migrations(&mut db_connection, &config.migrations_dir);
+    let db_pool = Arc::new(db::DbConnectionPool::from(&config));
+    let mut c = db_pool.get().expect("Getting database connection to run migrations");
+    db::run_migrations(&mut c, &config.migrations_dir);
+    let config = Arc::new(config);
+    let translations = Arc::new(translations);
 
-        let config = Arc::new(config);
-        let translations = Arc::new(translations);
-
-        trillium_main(config, translations, db_backend);
-    } else {
-        eprintln!("A database connection is required!");
-        std::process::exit(1);
-    }
+    trillium_main(config, translations, db_pool);
 }
 
 fn get_quota(quotas: Option<Quotas>, headers: &Headers) -> Quota {
@@ -151,7 +147,8 @@ fn set_lang_cookie(conn: &mut Conn, lang: &str) {
 
 fn trillium_main(
     config: Arc<TranspoConfig>,
-    translations: Arc<Translations>, db_backend: db::DbBackend)
+    translations: Arc<Translations>,
+    db_pool: Arc<db::DbConnectionPool>)
 {
     let accessors = Accessors::new();
 
@@ -167,14 +164,15 @@ fn trillium_main(
         config.read_timeout_milliseconds,
         config.storage_dir.to_owned(),
         storage_limit.clone(),
-        db_backend, config.db_url.to_owned());
+        db_pool.clone());
 
     let s = TranspoState {
         config: config.clone(),
         translations: translations.clone(),
         accessors: accessors.clone(),
         quotas,
-        storage_limit
+        storage_limit,
+        db_pool: db_pool
     };
 
     let router = Router::new()
@@ -208,16 +206,14 @@ fn trillium_main(
             let (config, _, translation, _) = get_config(&conn);
             let state = conn.take_state::<TranspoState>().unwrap();
             let quota = get_quota(state.quotas, conn.headers());
-            let storage_limit = state.storage_limit;
 
-            upload::handle_post(conn, config, quota, storage_limit, translation, db_backend).await
+            upload::handle_post(conn, config, quota, state.storage_limit, translation, state.db_pool).await
         }}))
         .get("/upload", (state(s.clone()), websocket(move |mut conn: WebSocketConn| { async move {
             let state = conn.take_state::<TranspoState>().unwrap();
             let quota = get_quota(state.quotas, conn.headers());
-            let storage_limit = state.storage_limit;
 
-            drop(upload::handle_websocket(conn, state.config, db_backend, quota, storage_limit).await)
+            drop(upload::handle_websocket(conn, state.config, state.db_pool, quota, state.storage_limit).await)
         }}).with_protocol_config(WS_UPLOAD_CONFIG)))
         .get("/:file_id", (state(s.clone()), move |conn: Conn| { async move {
             let file_id = conn.param("file_id").unwrap().to_owned();
@@ -261,7 +257,7 @@ fn trillium_main(
 
             download::info(
                 conn, file_id, state.config, state.storage_limit,
-                state.accessors, translation, db_backend).await
+                state.accessors, translation, state.db_pool).await
         }}))
         .get("/:file_id/dl", (state(s.clone()), move |mut conn: Conn| { async move {
             let file_id = conn.param("file_id").unwrap().to_owned();
@@ -269,7 +265,7 @@ fn trillium_main(
             let state = conn.take_state::<TranspoState>().unwrap();
 
             download::handle(
-                conn, file_id, config, state.storage_limit, state.accessors, translation, db_backend).await
+                conn, file_id, config, state.storage_limit, state.accessors, translation, state.db_pool).await
         }}))
         .get("/clear-data", move |conn: Conn| { async move {
             conn
