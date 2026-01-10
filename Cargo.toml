@@ -6,26 +6,26 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-blocking = "1.3"
-smol = "1.3"
-smol-timeout = "0.6"
-tokio = { version = "1.49", features = ["fs", "io-util"] }
-trillium = "0.2"
-trillium-tokio = "0.4"
-trillium-router = "0.4"
-trillium-websockets = "0.6"
-trillium-static = { version = "0.4", features = ["tokio"] }
-trillium-askama = "0.3"
-askama = "0.12"
-rand = "0.9"
 aes-gcm = "0.9"
+argon2 = "0.4"
+askama = "0.12"
+blocking = "1.3"
+chrono = "0.4.42"
+dashmap = "6.1"
 diesel = { version = "2.3", features = ["chrono", "r2d2"] }
 diesel_migrations = "2.2"
-chrono = "0.4.42"
-argon2 = "0.4"
-urlencoding = "2.1"
+rand = "0.9"
+smol = "1.3"
+smol-timeout = "0.6"
 streaming-zip-async = { path = "streaming-zip-async" }
-dashmap = "6.1"
+tokio = { version = "1.49", features = ["fs", "io-util"] }
+trillium = "0.2"
+trillium-askama = "0.3"
+trillium-router = "0.4"
+trillium-static = { version = "0.4", features = ["tokio"] }
+trillium-tokio = "0.4"
+trillium-websockets = "0.6"
+urlencoding = "2.1"
 
 [features]
 default = ["sqlite"]
