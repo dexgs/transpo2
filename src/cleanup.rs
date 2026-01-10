@@ -32,11 +32,10 @@ where P: AsRef<Path> {
         // Note: ID generation avoids collisions by checking the
         // filesystem, so we remove the upload directory AFTER
         // the upload is gone from the database.
-        if let Some(1) = Upload::delete_with_id(id, c) {
-            match std::fs::remove_dir_all(&upload_path) {
-                Err(e) => { eprintln!("Error deleting {:?}: {}", upload_path, e); }
-                Ok(()) => { storage_limit.lock().deduct(size); }
-            }
+        Upload::delete_with_id(id, c);
+        match std::fs::remove_dir_all(&upload_path) {
+            Err(e) => { eprintln!("Error deleting {:?}: {}", upload_path, e); }
+            Ok(()) => { storage_limit.lock().deduct(size); }
         }
     }
 }
@@ -71,34 +70,62 @@ fn cleanup(
     //   reasonably sure that the upload is not currently in progress.
     if let Ok(dir_entries) = std::fs::read_dir(&storage_path) {
         for entry in dir_entries {
-            let entry_data = entry.ok()
-                .and_then(|e| Some((e.path(), std::fs::metadata(e.path().join("upload")).ok()?)))
-                .and_then(|(p, m)| Some((p, m.modified().ok()?)))
-                .and_then(|(p, m)| Some((i64_from_b64_bytes(p.file_name()?.to_str()?.as_bytes())?, p, m)));
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    eprintln!("Error accessing storage directory entry: {:?}", e);
+                    continue;
+                }
+            };
 
-            if let Some((id, path, modified_time)) = entry_data {
-                let mut c = match db_pool.get() {
-                    Ok(c) => c,
-                    Err(_) => continue
-                };
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
 
-                if path.is_dir() && Upload::select_with_id(id, &mut c).is_none() {
-                    let now = SystemTime::now();
-                    if let Ok(age_millis) = now.duration_since(modified_time).map(|d| d.as_millis()) {
-                        // Depending on various factors, the modified_time
-                        // which gets reported can be slightly behind,
-                        // so we give some extra wiggle room.
-                        let write_deadline = 10_000 + read_timeout_ms;
+            let id = entry.file_name().to_str()
+                .map(|name| name.as_bytes())
+                .and_then(|bytes| i64_from_b64_bytes(bytes));
+            let id = match id {
+                Some(id) => id,
+                None => { continue; }
+            };
 
-                        if age_millis as usize > write_deadline
-                            && Upload::select_with_id(id, &mut c).is_none()
-                        {
-                            // NOTE: we DON'T want to update the storage limit in
-                            // this case, because the files we're removing are
-                            // NOT counted towards the storage limit, so subtracting
-                            // their size could make the storage limit underflow!!!
-                            delete_upload(id, &storage_path, &StorageLimit::unlimited(), &mut c);
-                        }
+            let upload_file = entry.path().join("upload");
+            let metadata_path = if upload_file.exists() {
+                &upload_file
+            } else {
+                &entry.path()
+            };
+            let modified_time = match std::fs::metadata(metadata_path).and_then(|m| m.modified()) {
+                Ok(modified_time) => modified_time,
+                Err(e) => {
+                    eprintln!("Error reading modified_time: {:?}", e);
+                    continue;
+                }
+            };
+
+            let mut c = match db_pool.get() {
+                Ok(c) => c,
+                Err(_) => { continue; }
+            };
+
+            if Upload::select_with_id(id, &mut c).is_none() {
+                eprintln!("Removing broken upload: {:?}", entry.file_name());
+                let now = SystemTime::now();
+                if let Ok(age_millis) = now.duration_since(modified_time).map(|d| d.as_millis()) {
+                    // Depending on various factors, the modified_time
+                    // which gets reported can be slightly behind,
+                    // so we give some extra wiggle room.
+                    let write_deadline = 10_000 + read_timeout_ms;
+
+                    if age_millis as usize > write_deadline
+                        && Upload::select_with_id(id, &mut c).is_none()
+                    {
+                        // NOTE: we DON'T want to update the storage limit in
+                        // this case, because the files we're removing are
+                        // NOT counted towards the storage limit, so subtracting
+                        // their size could make the storage limit underflow!!!
+                        delete_upload(id, &storage_path, &StorageLimit::unlimited(), &mut c);
                     }
                 }
             }
