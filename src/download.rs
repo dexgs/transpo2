@@ -191,7 +191,7 @@ pub async fn info(
         Some((file_name, mime_type, file_size)) => {
             conn
                 .with_status(200)
-                .with_header("Content-Type", "application/json")
+                .with_response_header("Content-Type", "application/json")
                 .with_body(format!("{{ \
                         \"name\": \"{}\", \
                         \"mime\": \"{}\", \
@@ -300,10 +300,10 @@ pub async fn handle(
             conn
                 .with_status(200)
                 .with_body(body)
-                .with_header("Cache-Control", "no-cache")
-                .with_header("Content-Type", mime_type)
-                .with_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size))
-                .with_header("Content-Disposition",
+                .with_response_header("Cache-Control", "no-cache")
+                .with_response_header("Content-Type", mime_type)
+                .with_response_header("Transpo-Ciphertext-Length", format!("{}", ciphertext_size))
+                .with_response_header("Content-Disposition",
                              format!("attachment; filename=\"{}\"", file_name))
                 .halt()
         },

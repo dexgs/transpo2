@@ -23,7 +23,7 @@ use trillium_websockets::{WebSocketConn, Message, tungstenite::protocol::frame::
 use trillium_askama::AskamaConnExt;
 
 use smol::prelude::*;
-use smol::io::{AsyncReadExt};
+use smol::io::AsyncReadExt;
 
 use blocking::unblock;
 
@@ -346,8 +346,9 @@ pub async fn handle_websocket(
             form, upload_id, file_name, mime_type,
             db_pool.clone(), config.clone()).await.is_some();
 
-        if db_write_succeeded {
-            conn.send_string(upload_id_string.clone()).await;
+        let send_id_succeeded = conn.send_string(upload_id_string.clone()).await.is_ok();
+
+        if db_write_succeeded && send_id_succeeded {
 
             let upload_result = websocket_read_loop(
                 &mut conn, &upload_path, config.clone(), quota, storage_limit.clone()).await;
@@ -763,7 +764,7 @@ pub async fn handle_post(
         if let Some(key) = key {
             // If the server handled encryption + archiving
             let key_string = String::from_utf8(key).unwrap();
-            if conn.headers().has_header("User-Agent") {
+            if conn.request_headers().has_header("User-Agent") {
                 // If the client is probably a browser
                 let upload_url = if is_password_protected {
                     format!("{}#{}", upload_id_string, key_string)
@@ -781,7 +782,7 @@ pub async fn handle_post(
                 // If the client is probably a tool like curl
                 conn
                     .with_status(200)
-                    .with_header("Content-Type", "application/json")
+                    .with_response_header("Content-Type", "application/json")
                     .with_body(format!("\"{}#{}\"", upload_id_string, key_string))
                     .halt()
             }
@@ -789,7 +790,7 @@ pub async fn handle_post(
             // If the client handled encryption + archiving
             conn
                 .with_status(200)
-                .with_header("Content-Type", "application/json")
+                .with_response_header("Content-Type", "application/json")
                 .with_body(format!("\"{}\"", upload_id_string))
                 .halt()
         }
@@ -804,7 +805,7 @@ pub async fn handle_post(
 
 // Read the multipart form boundary out of the headers
 fn get_boundary<'a>(conn: &'a Conn) -> Option<&'a str> {
-    conn.headers()
+    conn.request_headers()
         .get_str("Content-Type")
         .and_then(|ct| ct.split_once("boundary"))
         .and_then(|(_, boundary)| boundary.split_once('='))

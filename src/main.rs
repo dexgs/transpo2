@@ -42,7 +42,10 @@ use trillium_static::{files, crate_relative_path};
 const X_REAL_IP: &'static str = "X-Real-IP";
 
 const WS_UPLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
-    max_send_queue: Some(1),
+    #[allow(deprecated)]
+    max_send_queue: None, // This field no longer does anything
+    write_buffer_size: 128,
+    max_write_buffer_size: 256,
     max_message_size: Some(FORM_READ_BUFFER_SIZE + 64),
     max_frame_size: Some(FORM_READ_BUFFER_SIZE + 64),
     accept_unmasked_frames: false
@@ -116,7 +119,7 @@ fn get_lang(conn: &Conn, default_lang: &str) -> String {
     }
 
     let mut cookie_lang = None;
-    if let Some(cookie) = conn.headers().get_str("Cookie") {
+    if let Some(cookie) = conn.request_headers().get_str("Cookie") {
         for arg in cookie.split(";") {
             if let Some((key, value)) = arg.split_once("=") {
                 if key.trim() == "lang" {
@@ -141,7 +144,7 @@ fn get_config(conn: &Conn) -> (
 }
 
 fn set_lang_cookie(conn: &mut Conn, lang: &str) {
-    conn.headers_mut()
+    conn.response_headers_mut()
         .insert("Set-Cookie", format!("lang={}; Path=.; SameSite=Lax", lang));
 }
 
@@ -205,7 +208,7 @@ fn trillium_main(
         .post("/upload", (state(s.clone()), move |mut conn: Conn| { async move {
             let (config, _, translation, _) = get_config(&conn);
             let state = conn.take_state::<TranspoState>().unwrap();
-            let quota = get_quota(state.quotas, conn.headers());
+            let quota = get_quota(state.quotas, conn.request_headers());
 
             upload::handle_post(conn, config, quota, state.storage_limit, translation, state.db_pool).await
         }}))
@@ -270,7 +273,7 @@ fn trillium_main(
         .get("/clear-data", move |conn: Conn| { async move {
             conn
                 .with_status(200)
-                .with_header("Clear-Site-Data", "\"storage\"")
+                .with_response_header("Clear-Site-Data", "\"storage\"")
                 .with_body("Cleared site data (including service worker)")
                 .halt()
         }})
