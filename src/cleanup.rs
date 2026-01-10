@@ -16,8 +16,7 @@ pub fn spawn_cleanup_thread(
 }
 
 pub fn delete_upload<P>(
-    id: i64, storage_path: P, storage_limit: &StorageLimit,
-    db_connection: &mut DbConnection)
+    id: i64, storage_path: P, storage_limit: &StorageLimit, c: &mut DbConnection)
 where P: AsRef<Path> {
     let id_string = String::from_utf8(i64_to_b64_bytes(id)).unwrap();
     let upload_path = storage_path.as_ref().join(id_string);
@@ -31,14 +30,14 @@ where P: AsRef<Path> {
         };
 
         // Note: ID generation avoids collisions by checking the
-        // filesystem, so we remove the upload directory AFTER removing
-        // everything else.
-        Upload::delete_with_id(id, db_connection);
-        if let Err(e) = std::fs::remove_dir_all(&upload_path) {
-            eprintln!("Error deleting {:?}: {}", upload_path, e);
+        // filesystem, so we remove the upload directory AFTER
+        // the upload is gone from the database.
+        if let Some(1) = Upload::delete_with_id(id, c) {
+            match std::fs::remove_dir_all(&upload_path) {
+                Err(e) => { eprintln!("Error deleting {:?}: {}", upload_path, e); }
+                Ok(()) => { storage_limit.lock().deduct(size); }
+            }
         }
-
-        storage_limit.lock().deduct(size);
     }
 }
 
@@ -89,7 +88,7 @@ fn cleanup(
                         // Depending on various factors, the modified_time
                         // which gets reported can be slightly behind,
                         // so we give some extra wiggle room.
-                        let write_deadline = 5000 + read_timeout_ms;
+                        let write_deadline = 10_000 + read_timeout_ms;
 
                         if age_millis as usize > write_deadline
                             && Upload::select_with_id(id, &mut c).is_none()

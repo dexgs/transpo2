@@ -2209,6 +2209,7 @@ dependencies = [
 name = "transpo2"
 version = "0.1.0"
 dependencies = [
+ "aead",
  "aes-gcm",
  "argon2",
  "askama",

@@ -5,6 +5,7 @@ use crate::quotas::*;
 use crate::storage_limit::*;
 
 use std::io::{Result, Error, ErrorKind, SeekFrom};
+use aead::Buffer;
 use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::{NaiveDateTime, Local};
@@ -16,15 +17,15 @@ use std::str;
 use std::task::{Poll, Context};
 use streaming_zip_async;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, AsyncSeekExt, BufWriter};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, AsyncSeekExt, BufReader, BufWriter};
 use tokio::time::sleep;
 
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 
 
-fn nonce_bytes_from_count(count: &u64) -> [u8; 12] {
+fn nonce_bytes_from_count(count: u64) -> [u8; 12] {
     let mut nonce_bytes = [0; 12];
-    nonce_bytes[..8].copy_from_slice(&u64::to_le_bytes(*count));
+    nonce_bytes[..8].copy_from_slice(&u64::to_le_bytes(count));
     nonce_bytes
 }
 
@@ -212,7 +213,7 @@ where W: AsyncWrite + Unpin
 
 
 fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> WriterResult<Vec<u8>> {
-    let nonce_bytes = nonce_bytes_from_count(count);
+    let nonce_bytes = nonce_bytes_from_count(*count);
     *count += 1;
 
     match cipher.encrypt(Nonce::from_slice(&nonce_bytes), string.as_bytes()) {
@@ -235,11 +236,14 @@ where W: Writer + AsyncWrite + Unpin
 {
     writer: W,
     cipher: Aes256Gcm,
-    buffer: Vec<u8>,
-    buffer_write_start: usize,
-    size_prefix_start: u8,
+    count: u64,
+
+    buffer: [u8; 2 + MAX_CHUNK_SIZE],
     plaintext_len: usize,
-    count: u64
+    segment_len: usize,
+    segment_write_start: usize,
+
+    ending_bytes_written: u8,
 }
 
 impl<W> EncryptedFileWriter<W>
@@ -263,11 +267,12 @@ where W: Writer + AsyncWrite + Unpin
         let this = Self {
             writer,
             cipher,
-            buffer: Vec::with_capacity(FORM_READ_BUFFER_SIZE + 16),
-            buffer_write_start: 0,
-            size_prefix_start: 0,
+            buffer: [0; 2 + MAX_CHUNK_SIZE],
+            segment_write_start: 0,
             plaintext_len: 0,
-            count
+            segment_len: 0,
+            count,
+            ending_bytes_written: 0
         };
         
         Ok((this, encoded_key, name_cipher, mime_cipher))
@@ -275,74 +280,48 @@ where W: Writer + AsyncWrite + Unpin
 
     // Returns Poll::Pending untill the full ciphertext is written
     fn encrypt_and_write_buffer(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<usize>> {
-        if self.plaintext_len == 0 {
-            // Encrypt a new plaintext chunk
-
-            assert_eq!(self.buffer_write_start, 0);
-            assert_eq!(self.size_prefix_start, 0);
-            self.plaintext_len = self.buffer.len();
-
-            let nonce_bytes = nonce_bytes_from_count(&self.count);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-            self.count += 1;
-
-            let this = self.as_mut().get_mut();
-            match this.cipher.encrypt_in_place(nonce, b"", &mut this.buffer) {
-                Ok(()) => if this.buffer.len() > MAX_CHUNK_SIZE {
-                    return Poll::Ready(Err(other_error("Plaintext too large")));
-                },
-                _ => {
-                    return Poll::Ready(Err(other_error("encrypt_in_place")));
-                }
-            }
-        }
-
-        // Write chunk size
-        if self.size_prefix_start < 2 {
-            let size_prefix = (self.buffer.len() as u16).to_be_bytes();
-            let this = self.as_mut().get_mut();
-            let f = pin!(&mut this.writer).poll_write(cx, &size_prefix[this.size_prefix_start as usize..]);
-            match f {
-                Poll::Ready(Ok(bytes_written)) => {
-                    self.size_prefix_start += bytes_written as u8;
-                    // If the full size prefix was not written
-                    if self.size_prefix_start < 2 {
-                        cx.waker().wake_by_ref();
-                        return Poll::Pending;
-                    }
-                },
-                _ => {
-                    return f;
-                }
-            };
-        }
-
-        // Write ciphertext
         let this = self.as_mut().get_mut();
-        let f = pin!(&mut this.writer).poll_write(cx, &this.buffer[this.buffer_write_start..]);
-        match f {
-            Poll::Ready(Ok(bytes_written)) => {
-                // Check if the entire ciphertext was written
-                self.buffer_write_start += bytes_written;
-                if self.buffer_write_start >= self.buffer.len() {
-                    // Report the write size to the caller as the size of the
-                    // *plaintext* that was written
-                    let ready = Poll::Ready(Ok(self.plaintext_len));
 
-                    // reset state variables
-                    self.buffer.clear();
-                    self.buffer_write_start = 0;
-                    self.size_prefix_start = 0;
-                    self.plaintext_len = 0;
+        // Encrypt a new plaintext chunk
+        if this.segment_len == 0 {
+            let nonce_bytes = nonce_bytes_from_count(this.count);
+            let nonce = Nonce::from_slice(&nonce_bytes);
+            this.count += 1;
 
-                    ready
-                } else {
-                    // Return "pending" until the full ciphertext is written
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
+            let chunk = &mut this.buffer[2..];
+            let mut buffer = FixedBuffer::new(chunk, this.plaintext_len);
+            if this.cipher.encrypt_in_place(nonce, b"", &mut buffer).is_err() {
+                return Poll::Ready(Err(other_error("encrypt_in_place")));
+            } else if buffer.len() > MAX_CHUNK_SIZE {
+                return Poll::Ready(Err(other_error("Plaintext too large")));
             }
-            _ => f
+            let ciphertext_len = buffer.len();
+
+            let size_prefix = &mut this.buffer[..2];
+            size_prefix.copy_from_slice(&(ciphertext_len as u16).to_be_bytes());
+
+            this.segment_len = 2 + ciphertext_len;
+        }
+
+        // Write segment (size prefix + ciphertext chunk)
+        let segment = &this.buffer[..this.segment_len][this.segment_write_start..];
+        let f = pin!(&mut this.writer).poll_write(cx, segment);
+        if let Poll::Ready(Ok(bytes_written)) = f {
+            // Check if the entire segment was written
+            self.segment_write_start += bytes_written;
+            debug_assert!(self.segment_write_start <= self.segment_len);
+            if self.segment_write_start >= self.segment_len {
+                // Reset state variables
+                self.segment_write_start = 0;
+                self.plaintext_len = 0;
+                self.segment_len = 0;
+            }
+
+            // Return "pending" until the full segment is written
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            f
         }
     }
 }
@@ -361,11 +340,7 @@ where W: Writer + AsyncWrite + Unpin
 
     async fn finish(mut self) -> WriterResult<()> {
         // Encrypt and write any remaining plaintext in the buffer
-        self.flush().await?;
-        // Write a chunk size of 0 to indicate the end of the file
-        self.writer.write_all(&0u16.to_be_bytes()).await?;
-        // Flush the underlying writer
-        self.writer.flush().await?;
+        self.shutdown().await?;
         Ok(())
     }
 }
@@ -376,18 +351,15 @@ where W: Writer + AsyncWrite + Unpin
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
         -> Poll<Result<usize>>
     {
-        if self.buffer.len() >= FORM_READ_BUFFER_SIZE {
-            match self.encrypt_and_write_buffer(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(_) => {
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-            }
+        if self.plaintext_len >= FORM_READ_BUFFER_SIZE {
+            self.encrypt_and_write_buffer(cx)
         } else {
-            let remaining = FORM_READ_BUFFER_SIZE - self.buffer.len();
-            let take = std::cmp::min(remaining, buf.len());
-            self.buffer.extend_from_slice(&buf[..take]);
+            let this = self.as_mut().get_mut();
+            let chunk = &mut this.buffer[2..][..FORM_READ_BUFFER_SIZE];
+            let remaining_chunk = &mut chunk[this.plaintext_len..];
+            let take = std::cmp::min(remaining_chunk.len(), buf.len());
+            remaining_chunk[..take].copy_from_slice(&buf[..take]);
+            this.plaintext_len += take;
             Poll::Ready(Ok(take))
         }
     }
@@ -395,24 +367,31 @@ where W: Writer + AsyncWrite + Unpin
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
-        // The buffer is cleared when the ciphertext has been written
-        if self.buffer.len() > 0 {
-            match self.encrypt_and_write_buffer(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(_) => {
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-            }
-        } else {
-            pin!(&mut self.writer).poll_flush(cx)
-        }
+        pin!(&mut self.writer).poll_flush(cx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
-        pin!(&mut self.writer).poll_shutdown(cx)
+        if self.plaintext_len > 0 {
+            // Write the final segment
+            self.encrypt_and_write_buffer(cx).map_ok(|_| ())
+        } else if self.ending_bytes_written < 2 {
+            // Write a size prefix of 0 to indicate the end of the upload
+            let ending_bytes = &[0, 0][self.ending_bytes_written as usize..];
+            match pin!(&mut self.writer).poll_write(cx, ending_bytes) {
+                Poll::Ready(Ok(0)) => Poll::Ready(Err(Error::from(ErrorKind::WriteZero))),
+                Poll::Ready(Ok(bytes_written)) => {
+                    self.ending_bytes_written += bytes_written as u8;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                },
+                f => f.map_ok(|_| ())
+            }
+        } else {
+            // Shut down the underlying writer
+            pin!(&mut self.writer).poll_shutdown(cx)
+        }
     }
 }
 
@@ -473,7 +452,7 @@ where W: Writer + AsyncWrite + Unpin
 // Readers
 
 pub struct FileReader {
-    reader: tokio::io::BufReader<tokio::fs::File>,
+    reader: BufReader<File>,
     expire_after: NaiveDateTime,
     last_read_time: NaiveDateTime,
     is_completed: bool
@@ -548,20 +527,24 @@ impl AsyncRead for FileReader {
 }
 
 
-pub struct EncryptedFileReader {
-    reader: FileReader,
+pub struct EncryptedFileReader<R>
+where R: AsyncRead
+{
+    reader: R,
     cipher: Aes256Gcm,
+    count: u64,
+    is_finished: bool,
+
     size_buf: [u8; 2],
     size_buf_len: usize,
+
     buffer: [u8; MAX_CHUNK_SIZE],
-    buffer_len: usize,
-    plaintext: Vec<u8>,
-    plaintext_read_start: usize,
-    count: u64,
-    is_finished: bool
+    ciphertext_len: usize,
+    plaintext_len: usize,
+    plaintext_read_start: usize
 }
 
-impl EncryptedFileReader {
+impl EncryptedFileReader<FileReader> {
     pub async fn new<P>(
         path: P,
         start_index: u64,
@@ -569,8 +552,23 @@ impl EncryptedFileReader {
         is_completed: bool,
         key: &[u8],
         name_cipher: &[u8],
-        mime_cipher: &[u8]) -> WriterResult<(Self, String, String)>
+        mime_cipher: &[u8]) -> Result<(Self, String, String)>
     where P: AsRef<Path>
+    {
+        let reader = FileReader::new(
+            path, start_index, expire_after, is_completed).await?;
+        Self::with_reader(reader, key, name_cipher, mime_cipher)
+    }
+}
+
+impl<R> EncryptedFileReader<R>
+where R: AsyncRead
+{
+    pub fn with_reader(
+        reader: R,
+        key: &[u8],
+        name_cipher: &[u8],
+        mime_cipher: &[u8]) -> Result<(Self, String, String)>
     {
         let key_slice = b64::base64_decode(key).ok_or(other_error("base64_decode"))?;
         let key = Key::from_slice(&key_slice);
@@ -586,14 +584,13 @@ impl EncryptedFileReader {
         let mime = decrypt_string(&cipher, &mime_cipher_decoded, &mut count)?;
 
         let new = Self {
-            reader: FileReader::new(
-                path, start_index, expire_after, is_completed).await?,
+            reader,
             cipher: cipher,
             size_buf: [0; 2],
             size_buf_len: 0,
             buffer: [0; MAX_CHUNK_SIZE],
-            buffer_len: 0,
-            plaintext: Vec::with_capacity(MAX_CHUNK_SIZE),
+            ciphertext_len: 0,
+            plaintext_len: 0,
             plaintext_read_start: 0,
             count,
             is_finished: false
@@ -643,71 +640,76 @@ fn poll_read_full<R>(
     }
 }
 
-impl AsyncRead for EncryptedFileReader {
+impl<R> AsyncRead for EncryptedFileReader<R>
+where R: AsyncRead + Unpin
+{
     fn poll_read(
         self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
         -> Poll<Result<()>>
     {
         // Async nonsense to be able to simultaneously mutably borrow separate
         // member variables.
-        let s = self.get_mut();
+        let this = self.get_mut();
 
-        if s.is_finished {
+        if this.is_finished {
             return Poll::Ready(Ok(()));
         }
 
-        if s.plaintext.is_empty() {
+        if this.plaintext_len == 0 {
             // Get the size of the next chunk to read (first 2 bytes)
             let (bytes_read, f) = poll_read_full(
-                pin!(&mut s.reader), cx, &mut s.size_buf[s.size_buf_len..2]);
-            s.size_buf_len += bytes_read;
+                pin!(&mut this.reader), cx, &mut this.size_buf[this.size_buf_len..2]);
+            this.size_buf_len += bytes_read;
             if let Some(f) = f { return f; }
-            assert_eq!(s.size_buf_len, 2);
+            assert_eq!(this.size_buf_len, 2);
 
-            let size_buf = [s.size_buf[0], s.size_buf[1]];
+            let size_buf = [this.size_buf[0], this.size_buf[1]];
             let chunk_size = u16::from_be_bytes(size_buf) as usize;
             if chunk_size > MAX_CHUNK_SIZE {
                 return Poll::Ready(Err(other_error("Ciphertext chunk too large")));
             } else if chunk_size == 0 {
                 // A chunk size of 0 indicates the end of the file
-                s.is_finished = true;
+                this.is_finished = true;
                 return Poll::Ready(Ok(()));
             }
 
             // Read the full chunk
             let (bytes_read, f) = poll_read_full(
-                pin!(&mut s.reader), cx, &mut s.buffer[s.buffer_len..chunk_size]);
-            s.buffer_len += bytes_read;
+                pin!(&mut this.reader), cx, &mut this.buffer[this.ciphertext_len..chunk_size]);
+            this.ciphertext_len += bytes_read;
             if let Some(f) = f { return f; }
-            assert_eq!(s.buffer_len, chunk_size);
+            assert_eq!(this.ciphertext_len, chunk_size);
 
             // Decrypt the chunk
-            let nonce_bytes = nonce_bytes_from_count(&s.count);
-            s.count += 1;
-            s.plaintext.extend_from_slice(&s.buffer[..s.buffer_len]);
-            let decrypt_status = s.cipher.decrypt_in_place(
-                Nonce::from_slice(&nonce_bytes), b"", &mut s.plaintext);
-            if decrypt_status.is_err() {
+            let nonce_bytes = nonce_bytes_from_count(this.count);
+            this.count += 1;
+            let ciphertext = &mut this.buffer[..this.ciphertext_len];
+            let mut buffer = FixedBuffer::new(ciphertext, ciphertext.len());
+            if this.cipher.decrypt_in_place(
+                Nonce::from_slice(&nonce_bytes), b"", &mut buffer).is_err()
+            {
                 return Poll::Ready(Err(other_error("Decrypting ciphertext chunk failed")));
             }
+            this.plaintext_len = buffer.len();
         }
 
         // At this point, we have a plaintext
-        assert!(!s.plaintext.is_empty());
+        let plaintext = &this.buffer[..this.plaintext_len];
+        debug_assert!(!plaintext.is_empty());
 
         // Write as much of the plaintext as we can into the caller's ReadBuf
-        let plaintext_remaining = &s.plaintext[s.plaintext_read_start..];
+        let plaintext_remaining = &plaintext[this.plaintext_read_start..];
         let read_size = cmp::min(plaintext_remaining.len(), buf.remaining());
         buf.put_slice(&plaintext_remaining[..read_size]);
-        s.plaintext_read_start += read_size;
+        this.plaintext_read_start += read_size;
 
         // If the entire plaintext was read, reset state variables to read
         // a new ciphertext chunk the next time this reader is polled.
         if read_size == plaintext_remaining.len() {
-            s.plaintext.clear();
-            s.buffer_len = 0;
-            s.size_buf_len = 0;
-            s.plaintext_read_start = 0;
+            this.plaintext_len = 0;
+            this.ciphertext_len = 0;
+            this.size_buf_len = 0;
+            this.plaintext_read_start = 0;
         }
 
         Poll::Ready(Ok(()))
@@ -715,16 +717,61 @@ impl AsyncRead for EncryptedFileReader {
 }
 
 
-fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> WriterResult<String> {
-    let nonce_bytes = nonce_bytes_from_count(count);
+fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<String> {
+    let nonce_bytes = nonce_bytes_from_count(*count);
     *count += 1;
 
     match cipher.decrypt(Nonce::from_slice(&nonce_bytes), bytes) {
-        Ok(plaintext) => String::from_utf8(plaintext).or(Err(WriterError::Encryption)),
-        Err(_) => Err(WriterError::Encryption)
+        Ok(plaintext) => String::from_utf8(plaintext).or(Err(Error::from(ErrorKind::Other))),
+        Err(_) => Err(Error::from(ErrorKind::Other))
     }
 }
 
 fn other_error(message: &'static str) -> Error {
     Error::new(ErrorKind::Other, message)
+}
+
+// An implementor of aead::Buffer backed by a fixed-size buffer
+struct FixedBuffer<'a> {
+    inner: &'a mut [u8],
+    size: usize
+}
+
+impl<'a> FixedBuffer<'a> {
+    fn new(inner: &'a mut [u8], size: usize) -> Self {
+        Self { inner, size }
+    }
+
+    fn len(&self) -> usize {
+        self.size
+    }
+}
+
+impl<'a> AsRef<[u8]> for FixedBuffer<'a> {
+    fn as_ref(&self) -> &'_ [u8] {
+        &self.inner[..self.size]
+    }
+}
+
+impl<'a> AsMut<[u8]> for FixedBuffer<'a> {
+    fn as_mut(&mut self) -> &'_ mut [u8] {
+        &mut self.inner[..self.size]
+    }
+}
+
+impl<'a> Buffer for FixedBuffer<'a> {
+    fn extend_from_slice(&mut self, s: &[u8]) -> std::result::Result<(), aead::Error> {
+        if self.size + s.len() <= self.inner.len() {
+            self.inner[self.size..][..s.len()].copy_from_slice(s);
+            self.size += s.len();
+            Ok(())
+        } else {
+            Err(aead::Error {})
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        debug_assert!(len <= self.inner.len());
+        self.size = len;
+    }
 }
