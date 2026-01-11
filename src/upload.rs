@@ -724,7 +724,11 @@ pub async fn handle_post(
         form = UploadForm::default();
     }
 
-    let req_body = conn.request_body().await.with_max_len(config.max_upload_size_bytes as u64);
+    let max_len = match config.max_upload_size_bytes {
+        0 => u64::MAX,
+        n => n as u64
+    };
+    let req_body = conn.request_body().await.with_max_len(max_len);
     let timeout_duration = time::Duration::from_millis(
         config.read_timeout_milliseconds as u64);
     let mut parser = UploadFormParser::new(boundary, form, timeout_duration, req_body).unwrap();
