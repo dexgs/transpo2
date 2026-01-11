@@ -61,6 +61,7 @@ const MAX_DOWNLOADS_QUERY: &'static str = "max-downloads";
 const FILE_NAME_QUERY: &'static str = "file-name";
 const MIME_TYPE_QUERY: &'static str = "mime-type";
 
+#[derive(Debug)]
 enum UploadError {
     FileSize = 1,
     Quota = 2,
@@ -638,7 +639,7 @@ where R: AsyncReadExt + Unpin
 
                         return Ok((&self.upload_form, ParseResult::Finished))
                     },
-                    ParseResult::Error => return Err(UploadError::Protocol),
+                    ParseResult::Error => return Err(UploadError::Protocol)
                 }
             }
 
