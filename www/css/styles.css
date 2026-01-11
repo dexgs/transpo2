@@ -90,7 +90,7 @@ button:hover:enabled, input:enabled::file-selector-button:hover {
 }
 
 button:disabled {
-    opacity: 70%;
+    opacity: 60%;
 }
 
 button#upload-button, button#download-button {
@@ -98,7 +98,8 @@ button#upload-button, button#download-button {
     border: 1px solid;
     border-radius: 5px;
     transition: transform 0.2s, filter 0.2s;
-    height: 30px;
+    height: 35px;
+    font-size: 11pt;
 }
 
 button#upload-button {
@@ -154,7 +155,7 @@ ul#file-list > li.new {
 input::file-selector-button, button.uploaded-list-item-copy-url,
 button.file-list-item-remove, button.uploaded-list-item-remove,
 button#clear-files-button {
-    transition: all 0.1s;
+    transition: transform 0.1s;
 }
 
 input::file-selector-button:active, button.uploaded-list-item-copy-url:active,

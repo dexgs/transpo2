@@ -53,7 +53,7 @@
     --progress-bar-fg: var(--area-border);
     --progress-bar-border: var(--area-border);
 
-    --upload-url-fg: var(--accent-bg);
+    --upload-url-fg: #258df2;
     --upload-failed-fg: var(--error-fg);
     --upload-failed-bg: var(--error-bg);
 
