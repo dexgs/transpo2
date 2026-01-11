@@ -108,7 +108,7 @@ function updateFileList(prevNumFiles) {
         if (maxUploadSizeWarning) {
             maxUploadSizeWarning.remove();
         }
-        uploadButton.disabled = false;
+        uploadButton.disabled = files.length == 0;
     }
 }
 

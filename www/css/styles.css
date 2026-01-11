@@ -85,7 +85,7 @@ fieldset input[type="checkbox"] {
     accent-color: var(--checkbox-color);
 }
 
-button:hover, input::file-selector-button:hover {
+button:hover:enabled, input:enabled::file-selector-button:hover {
     filter: brightness(1.15);
 }
 
@@ -97,7 +97,7 @@ button#upload-button, button#download-button {
     font-weight: bold;
     border: 1px solid;
     border-radius: 5px;
-    transition: all 0.2s;
+    transition: transform 0.2s, filter 0.2s;
     height: 30px;
 }
 
@@ -119,11 +119,11 @@ button#download-button {
     border-color: var(--download-button-border);
 }
 
-button#upload-button:hover, button#download-button:hover {
+button#upload-button:hover:enabled, button#download-button:hover:enabled {
     transform: scale(1.01, 1.06);
 }
 
-button#upload-button:active, button#download-button:active {
+button#upload-button:active:enabled, button#download-button:active:enabled {
     transform: translateY(2px) scale(1);
 }
 

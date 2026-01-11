@@ -1,6 +1,9 @@
 const textArea = document.getElementById("paste-text-input");
 const textEncoder = new TextEncoder();
 
+const uploadButton = document.getElementById("upload-button");
+
+
 function getFilesToUpload() {
     if (textArea.value.length > 0) {
         const file = new File([textArea.value], "", { type: "text/plain" });
@@ -18,3 +21,7 @@ async function getListItemText(files) {
         title: ""
     };
 }
+
+textArea.addEventListener("input", () => {
+    uploadButton.disabled = textArea.textLength == 0;
+});
