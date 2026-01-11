@@ -148,6 +148,11 @@ input#file-input::file-selector-button {
     border-radius: 5px;
 }
 
+ul#file-list > li:hover {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
 ul#file-list > li.new {
     animation: fade-in 0.2s linear 1, slide-up 0.2s ease-out 1;
 }
