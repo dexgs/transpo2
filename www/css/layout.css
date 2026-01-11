@@ -52,6 +52,7 @@ header#header {
     align-items: baseline;
     flex-wrap: wrap;
     gap: 10px;
+    width: 100%;
     width: -moz-available;
     width: -webkit-fill-available;
     width: fill-available;
@@ -244,7 +245,6 @@ input[type="number"]#days-input {
 
 button#upload-button, button#download-button {
     width: 100%;
-    max-width: 60vw;
     align-self: center;
 }
 
@@ -328,7 +328,7 @@ textarea {
     position: relative;
 }
 
-@media (max-width: 400px) {
+@media (max-width: 500px) {
     form#language-select-form {
         position: absolute;
         top: 2px;
@@ -338,7 +338,7 @@ textarea {
 }
 
 @media (max-width: 800px) {
-    div.ui-frame, div#transpo-main {
+    div#transpo-main {
         min-width: 0;
         width: 100vw;
     }

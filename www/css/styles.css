@@ -323,13 +323,13 @@ footer a {
 }
 
 @media (max-width: 800px) {
-    div.ui-frame {
+    div#transpo-main {
         border-radius: 0;
         border-left: 0;
         border-right: 0;
     }
 
-    header#header {
+    header#header:has(+ div#transpo-main) {
         padding: 0 8px;
     }
 }
