@@ -90,7 +90,7 @@ pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[u8]) -> Par
                 }
                 // This case will not happen (see `try_strip_prefix`).
                 // It is only here to appease the compiler.
-                _ => Err(ParseResult::Error)
+                _ => panic!()
             }});
 
     let (buf, cd_len, has_ct, ct_len) = match parse_result {
@@ -127,8 +127,8 @@ pub fn parse<'a, B>(buf: &'a [u8], boundary: B, boundary_byte_map: &[u8]) -> Par
     };
 
     let value_start_index = cd_len + NEWLINE.len() + ct_total_len;
-    if value_start_index < buf.len() {
-        let value = &buf[(cd_len + NEWLINE.len() + ct_total_len)..];
+    if value_start_index <= buf.len() {
+        let value = &buf[value_start_index..];
         let value_len = find_value_len(value, boundary, boundary_byte_map);
 
         let leading_len = boundary.len()
