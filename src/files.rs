@@ -164,6 +164,7 @@ where W: AsyncWrite + Unpin
         let f = pin!(&mut this.writer).poll_write(cx, buf);
         match f {
             Poll::Ready(Ok(bytes_written)) => {
+                // Write succeeded
                 this.bytes_written += bytes_written;
                 quota.deduct(bytes_written);
                 storage_limit.add(bytes_written);
