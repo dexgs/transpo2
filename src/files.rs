@@ -10,6 +10,7 @@ use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::{NaiveDateTime, Local};
 use std::cmp;
+use std::boxed::Box;
 use std::future::Future;
 use std::path::Path;
 use std::pin::{pin, Pin};
@@ -17,9 +18,12 @@ use std::str;
 use std::task::{Poll, Context};
 use streaming_zip_async;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, AsyncSeekExt, BufReader, BufWriter};
-use tokio::time::sleep;
+use tokio::io::{
+    AsyncRead, AsyncWrite, AsyncWriteExt,
+    ReadBuf, AsyncSeekExt, BufReader, BufWriter};
+use tokio::time::{sleep, Sleep, Duration, Instant};
 
+const SIZE_PREFIX_LEN: usize = 2;
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 
 
@@ -94,15 +98,69 @@ where W: Writer + AsyncWrite + Unpin
     }
 }
 
+// Helper struct to handle the accounting for
+// the various limits imposed on uploads
+struct Accounting {
+    max_upload_size: usize,
+    bytes_written: usize,
+    quota: Quota,
+    storage_limit: StorageLimit
+}
+
+impl Accounting {
+    fn check<'a>(&'a mut self, num_bytes: usize)
+        -> std::result::Result<AccountingGuard<'a>, WriterError>
+    {
+        // Check max file size
+        if self.bytes_written + num_bytes > self.max_upload_size {
+            return Err(WriterError::FileSizeLimitExceeded);
+        }
+
+        // Check quota
+        let mut quota = self.quota.lock();
+        if !quota.check(num_bytes) {
+            return Err(WriterError::QuotaExceeded);
+        }
+
+        // Check storage limit
+        let storage_limit = self.storage_limit.lock();
+        if !storage_limit.check(num_bytes) {
+            return Err(WriterError::StorageLimitExceeded);
+        }
+
+        Ok(AccountingGuard {
+            max_write_size: num_bytes,
+            quota,
+            storage_limit,
+            bytes_written: &mut self.bytes_written
+        })
+    }
+}
+
+struct AccountingGuard<'a> {
+    // The maximum write size for which this guard is valid
+    max_write_size: usize,
+    quota: QuotaGuard<'a>,
+    storage_limit: StorageLimitGuard<'a>,
+    bytes_written: &'a mut usize
+}
+
+impl<'a> AccountingGuard<'a> {
+    // Commit writing `num_bytes` to accounting limits
+    fn commit(mut self, num_bytes: usize) {
+        debug_assert!(num_bytes <= self.max_write_size);
+        *self.bytes_written += num_bytes;
+        self.quota.deduct(num_bytes);
+        self.storage_limit.add(num_bytes);
+    }
+}
+
 pub struct AccountingFileWriter<W>
 where W: AsyncWrite + Unpin
 {
     writer: W,
     accounting_err: Option<WriterError>,
-    max_upload_size: usize,
-    bytes_written: usize,
-    quota: Quota,
-    storage_limit: StorageLimit
+    accounting: Accounting,
 }
 
 impl AccountingFileWriter<File> {
@@ -119,10 +177,12 @@ impl AccountingFileWriter<File> {
         let this = Self {
             writer: file,
             accounting_err: None,
-            max_upload_size,
-            bytes_written: 0,
-            quota,
-            storage_limit
+            accounting: Accounting {
+                max_upload_size,
+                bytes_written: 0,
+                quota,
+                storage_limit
+            }
         };
 
         Ok(tokio::io::BufWriter::new(this))
@@ -136,53 +196,27 @@ where W: AsyncWrite + Unpin
         -> Poll<Result<usize>>
     {
         let this = self.as_mut().get_mut();
-        let err = Poll::Ready(Err(Error::from(ErrorKind::Other)));
 
-        // Check file size limit
-        if
-            this.bytes_written + buf.len() > this.max_upload_size
-            && this.max_upload_size > 0
-        {
-            this.accounting_err = Some(WriterError::FileSizeLimitExceeded);
-            return err;
-        }
-
-        // Check quota
-        let mut quota = this.quota.lock();
-        if !quota.check(buf.len()) {
-            this.accounting_err = Some(WriterError::QuotaExceeded);
-            return err;
-        }
-
-        // Check storage size
-        let mut storage_limit = this.storage_limit.lock();
-        if !storage_limit.check(buf.len()) {
-            this.accounting_err = Some(WriterError::StorageLimitExceeded);
-            return err;
-        }
+        let guard = match this.accounting.check(buf.len()) {
+            Ok(guard) => guard,
+            Err(e) => {
+                this.accounting_err = Some(e);
+                return Poll::Ready(Err(Error::from(ErrorKind::Other)));
+            }
+        };
 
         let f = pin!(&mut this.writer).poll_write(cx, buf);
-        match f {
-            Poll::Ready(Ok(bytes_written)) => {
-                // Write succeeded
-                this.bytes_written += bytes_written;
-                quota.deduct(bytes_written);
-                storage_limit.add(bytes_written);
-                f
-            },
-            _ => f
+        if let Poll::Ready(Ok(bytes_written)) = f {
+            guard.commit(bytes_written);
         }
+        f
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
-        -> Poll<Result<()>>
-    {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         pin!(&mut self.writer).poll_flush(cx)
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
-        -> Poll<Result<()>>
-    {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         pin!(&mut self.writer).poll_shutdown(cx)
     }
 }
@@ -239,7 +273,7 @@ where W: Writer + AsyncWrite + Unpin
     cipher: Aes256Gcm,
     count: u64,
 
-    buffer: [u8; 2 + MAX_CHUNK_SIZE],
+    buffer: [u8; SIZE_PREFIX_LEN + MAX_CHUNK_SIZE],
     plaintext_len: usize,
     segment_len: usize,
     segment_write_start: usize,
@@ -268,7 +302,7 @@ where W: Writer + AsyncWrite + Unpin
         let this = Self {
             writer,
             cipher,
-            buffer: [0; 2 + MAX_CHUNK_SIZE],
+            buffer: [0; SIZE_PREFIX_LEN + MAX_CHUNK_SIZE],
             segment_write_start: 0,
             plaintext_len: 0,
             segment_len: 0,
@@ -289,41 +323,41 @@ where W: Writer + AsyncWrite + Unpin
             let nonce = Nonce::from_slice(&nonce_bytes);
             this.count += 1;
 
-            let chunk = &mut this.buffer[2..];
+            let chunk = &mut this.buffer[SIZE_PREFIX_LEN..];
             let mut buffer = FixedBuffer::new(chunk, this.plaintext_len);
             if this.cipher.encrypt_in_place(nonce, b"", &mut buffer).is_err() {
-                return Poll::Ready(Err(other_error("encrypt_in_place")));
+                return Poll::Ready(err("encrypt_in_place"));
             } else if buffer.len() > MAX_CHUNK_SIZE {
-                return Poll::Ready(Err(other_error("Plaintext too large")));
+                return Poll::Ready(err("Plaintext too large"));
             }
             let ciphertext_len = buffer.len();
 
-            let size_prefix = &mut this.buffer[..2];
+            let size_prefix = &mut this.buffer[..SIZE_PREFIX_LEN];
             size_prefix.copy_from_slice(&(ciphertext_len as u16).to_be_bytes());
 
-            this.segment_len = 2 + ciphertext_len;
+            this.segment_len = SIZE_PREFIX_LEN + ciphertext_len;
         }
 
         // Write segment (size prefix + ciphertext chunk)
         let segment = &this.buffer[..this.segment_len][this.segment_write_start..];
-        let f = pin!(&mut this.writer).poll_write(cx, segment);
-        if let Poll::Ready(Ok(bytes_written)) = f {
-            // Check if the entire segment was written
-            self.segment_write_start += bytes_written;
-            debug_assert!(self.segment_write_start <= self.segment_len);
-            if self.segment_write_start >= self.segment_len {
-                // Reset state variables
-                self.segment_write_start = 0;
-                self.plaintext_len = 0;
-                self.segment_len = 0;
-            }
+        let bytes_written = match pin!(&mut this.writer).poll_write(cx, segment) {
+            Poll::Ready(Ok(bytes_written)) => bytes_written,
+            f => return f
+        };
 
-            // Return "pending" until the full segment is written
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            f
+        // Check if the entire segment was written
+        self.segment_write_start += bytes_written;
+        debug_assert!(self.segment_write_start <= self.segment_len);
+        if self.segment_write_start == self.segment_len {
+            // Reset state variables
+            self.segment_write_start = 0;
+            self.plaintext_len = 0;
+            self.segment_len = 0;
         }
+
+        // Return "pending" until the full segment is written
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
 
@@ -377,9 +411,9 @@ where W: Writer + AsyncWrite + Unpin
         if self.plaintext_len > 0 {
             // Write the final segment
             self.encrypt_and_write_buffer(cx).map_ok(|_| ())
-        } else if self.ending_bytes_written < 2 {
+        } else if self.ending_bytes_written < SIZE_PREFIX_LEN as u8 {
             // Write a size prefix of 0 to indicate the end of the upload
-            let ending_bytes = &[0, 0][self.ending_bytes_written as usize..];
+            let ending_bytes = &[0; SIZE_PREFIX_LEN][self.ending_bytes_written as usize..];
             match pin!(&mut self.writer).poll_write(cx, ending_bytes) {
                 Poll::Ready(Ok(0)) => Poll::Ready(Err(Error::from(ErrorKind::WriteZero))),
                 Poll::Ready(Ok(bytes_written)) => {
@@ -456,7 +490,7 @@ pub struct FileReader {
     reader: BufReader<File>,
     expire_after: NaiveDateTime,
     last_read_time: NaiveDateTime,
-    is_completed: bool
+    sleep: Option<Pin<Box<Sleep>>>
 }
 
 impl FileReader {
@@ -465,14 +499,19 @@ impl FileReader {
         is_completed: bool) -> Result<Self>
         where P: AsRef<Path>
     {
-        let mut file = tokio::fs::File::open(path).await?;
+        let mut file = File::open(path).await?;
         file.seek(SeekFrom::Start(start_index)).await?;
 
+        let sleep = match is_completed {
+            false => Some(Box::pin(sleep(Duration::ZERO))),
+            true => None
+        };
+
         Ok(Self {
-            reader: tokio::io::BufReader::new(file),
+            reader: BufReader::new(file),
             expire_after,
             last_read_time: Local::now().naive_utc(),
-            is_completed
+            sleep
         })
     }
 }
@@ -493,37 +532,32 @@ impl AsyncRead for FileReader {
 
         const ONE_SECOND: chrono::Duration = chrono::Duration::seconds(1);
 
-        let buf_len = buf.filled().len();
-        let pinned = pin!(&mut self.as_mut().reader);
-        let f = pinned.poll_read(cx, buf);
-
-        match f {
-            Poll::Ready(Ok(())) => {
-                if
-                    // 0 bytes were read (EOF was reached)
-                    buf.filled().len() == buf_len
-                    // The upload may still be in progress while we're
-                    // downloading
-                    && !self.is_completed
-                    // It's been at most 1 second since the last non-zero read
-                    && now - self.last_read_time <= ONE_SECOND
-                {
-                    // The upload might still be in progress while we're
-                    // downloading, so return pending to let the caller know
-                    // to try again later.
-                    // TODO: consider increasing this sleep duration
-                    let s = sleep(tokio::time::Duration::from_secs(1));
-                    match pin!(s).poll(cx) {
-                        Poll::Ready(_) => Poll::Ready(Ok(())),
-                        _ => Poll::Pending
-                    }
-                } else {
-                    self.last_read_time = now;
-                    f
-                }
-            },
-            _ => f
+        let initial_remaining = buf.remaining(); 
+        match pin!(&mut self.reader).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {},
+            f => return f
         }
+
+        let this = self.as_mut().get_mut();
+        if let Some(sleep) = this.sleep.as_mut() {
+            let bytes_read = initial_remaining - buf.remaining();
+            let time_since_last_read = now - this.last_read_time;
+            // If we read zero bytes (reached EOF) and it's been *at most*
+            // one second since the last non-zero read, then the upload
+            // might still be in progress while we're downloading, so sleep
+            // and try again later...
+            if bytes_read == 0 && time_since_last_read <= ONE_SECOND {
+                // TODO: consider increasing this sleep duration
+                // (or replacing this with a better approach)
+                sleep.as_mut().reset(Instant::now() + Duration::from_secs(1));
+                if sleep.as_mut().poll(cx) == Poll::Pending {
+                    return Poll::Pending;
+                }
+            }
+        }
+
+        this.last_read_time = now;
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -536,7 +570,7 @@ where R: AsyncRead
     count: u64,
     is_finished: bool,
 
-    size_buf: [u8; 2],
+    size_buf: [u8; SIZE_PREFIX_LEN],
     size_buf_len: usize,
 
     buffer: [u8; MAX_CHUNK_SIZE],
@@ -571,15 +605,15 @@ where R: AsyncRead
         name_cipher: &[u8],
         mime_cipher: &[u8]) -> Result<(Self, String, String)>
     {
-        let key_slice = b64::base64_decode(key).ok_or(other_error("base64_decode"))?;
+        let key_slice = b64::base64_decode(key).ok_or(error("base64_decode"))?;
         let key = Key::from_slice(&key_slice);
         let cipher = Aes256Gcm::new(key);
         let mut count = 0;
 
         let name_cipher_decoded = b64::base64_decode(name_cipher)
-            .ok_or(other_error("decrypting file name ciphertext"))?;
+            .ok_or(error("decrypting file name ciphertext"))?;
         let mime_cipher_decoded = b64::base64_decode(mime_cipher)
-            .ok_or(other_error("decrypting file mime type ciphertext"))?;
+            .ok_or(error("decrypting file mime type ciphertext"))?;
 
         let name = decrypt_string(&cipher, &name_cipher_decoded, &mut count)?;
         let mime = decrypt_string(&cipher, &mime_cipher_decoded, &mut count)?;
@@ -587,7 +621,7 @@ where R: AsyncRead
         let new = Self {
             reader,
             cipher: cipher,
-            size_buf: [0; 2],
+            size_buf: [0; SIZE_PREFIX_LEN],
             size_buf_len: 0,
             buffer: [0; MAX_CHUNK_SIZE],
             ciphertext_len: 0,
@@ -603,7 +637,6 @@ where R: AsyncRead
 
 // Helper function to try to fully read into the contents of `buf`.
 // Reading 0 is considered an error, as we expect to be able to fill `buf`.
-// NOTE: Exception to the above, if `buf` has length 0.
 //
 // Incomplete reads (where we read > 0 bytes, but less than the length of `buf`)
 // are caught and we return a pending result instead (the waker is called to
@@ -616,14 +649,9 @@ fn poll_read_full<R>(
     -> (usize, Option<Poll<Result<()>>>)
     where R: AsyncRead
 {
-    if buf.len() == 0 {
-        return (0, None);
-    }
-
     let buf_len = buf.len();
     let mut readbuf = ReadBuf::new(buf);
-    let f = reader.poll_read(cx, &mut readbuf);
-    match f {
+    match reader.poll_read(cx, &mut readbuf) {
         Poll::Ready(Ok(())) => {
             let bytes_read = buf_len - readbuf.remaining();
             if bytes_read == 0 {
@@ -636,8 +664,8 @@ fn poll_read_full<R>(
             } else {
                 (bytes_read, None)
             }
-        }
-        _ => (0, Some(f))
+        },
+        f => (0, Some(f))
     }
 }
 
@@ -656,18 +684,20 @@ where R: AsyncRead + Unpin
             return Poll::Ready(Ok(()));
         }
 
-        if this.plaintext_len == 0 {
-            // Get the size of the next chunk to read (first 2 bytes)
+        if this.size_buf_len < SIZE_PREFIX_LEN {
+            // Get the size of the next chunk to read
             let (bytes_read, f) = poll_read_full(
-                pin!(&mut this.reader), cx, &mut this.size_buf[this.size_buf_len..2]);
+                pin!(&mut this.reader), cx, &mut this.size_buf[this.size_buf_len..]);
             this.size_buf_len += bytes_read;
             if let Some(f) = f { return f; }
-            assert_eq!(this.size_buf_len, 2);
+        }
 
-            let size_buf = [this.size_buf[0], this.size_buf[1]];
-            let chunk_size = u16::from_be_bytes(size_buf) as usize;
+        if this.plaintext_len == 0 {
+            assert_eq!(this.size_buf_len, this.size_buf.len());
+
+            let chunk_size = u16::from_be_bytes(this.size_buf) as usize;
             if chunk_size > MAX_CHUNK_SIZE {
-                return Poll::Ready(Err(other_error("Ciphertext chunk too large")));
+                return Poll::Ready(err("Ciphertext chunk too large"));
             } else if chunk_size == 0 {
                 // A chunk size of 0 indicates the end of the file
                 this.is_finished = true;
@@ -689,7 +719,7 @@ where R: AsyncRead + Unpin
             if this.cipher.decrypt_in_place(
                 Nonce::from_slice(&nonce_bytes), b"", &mut buffer).is_err()
             {
-                return Poll::Ready(Err(other_error("Decrypting ciphertext chunk failed")));
+                return Poll::Ready(err("Decrypting ciphertext chunk failed"));
             }
             this.plaintext_len = buffer.len();
         }
@@ -728,8 +758,12 @@ fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<S
     }
 }
 
-fn other_error(message: &'static str) -> Error {
+fn error(message: &'static str) -> Error {
     Error::new(ErrorKind::Other, message)
+}
+
+fn err<T>(message: &'static str) -> Result<T> {
+    Err(error(message))
 }
 
 // An implementor of aead::Buffer backed by a fixed-size buffer
