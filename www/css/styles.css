@@ -149,8 +149,10 @@ input#file-input::file-selector-button {
 }
 
 ul#file-list > li:hover {
-    text-decoration: underline;
-    text-decoration-style: dotted;
+    .file-list-item-name, .file-list-item-size {
+        text-decoration: underline;
+        text-decoration-style: dotted;
+    }
 }
 
 ul#file-list > li.new {
