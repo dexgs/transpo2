@@ -45,10 +45,6 @@ pub(crate) use pool_unblock;
 pub struct Upload {
     // unique identifier for this upload
     pub id: i64,
-    // base64-encoded ciphertext of file name of this upload
-    pub file_name: String,
-    // base64-encoded mime type of this upload
-    pub mime_type: String,
     pub password_hash: Option<Vec<u8>>,
     // number of remaining downloads (if download limit is enabled)
     pub remaining_downloads: Option<i32>,
@@ -62,8 +58,6 @@ pub struct Upload {
 diesel::table! {
     uploads (id) {
         id -> BigInt,
-        file_name -> Text,
-        mime_type -> Text,
         password_hash -> Nullable<Binary>,
         remaining_downloads -> Nullable<Integer>,
         expire_after -> Timestamp,

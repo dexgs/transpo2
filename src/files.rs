@@ -6,7 +6,7 @@ use crate::storage_limit::*;
 
 use std::io::{Result, Error, ErrorKind, SeekFrom};
 use aead::Buffer;
-use aes_gcm::aead::{AeadInPlace, Aead, NewAead};
+use aes_gcm::aead::{AeadInPlace, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::{NaiveDateTime, Local};
 use std::cmp;
@@ -19,19 +19,16 @@ use std::task::{Poll, Context};
 use streaming_zip_async;
 use tokio::fs::File;
 use tokio::io::{
-    AsyncRead, AsyncWrite, AsyncWriteExt,
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
     ReadBuf, AsyncSeekExt, BufReader, BufWriter};
 use tokio::time::{sleep, Sleep, Duration, Instant};
 
 const SIZE_PREFIX_LEN: usize = 2;
 const MAX_CHUNK_SIZE: usize = FORM_READ_BUFFER_SIZE + 16;
 
+const MAX_FILE_NAME_CIPHERTEXT_SIZE: usize = 512;
+const MAX_MIME_TYPE_CIPHERTEXT_SIZE: usize = 272;
 
-fn nonce_bytes_from_count(count: u64) -> [u8; 12] {
-    let mut nonce_bytes = [0; 12];
-    nonce_bytes[..8].copy_from_slice(&u64::to_le_bytes(count));
-    nonce_bytes
-}
 
 // Writers
 
@@ -40,14 +37,23 @@ pub enum WriterError {
     StorageLimitExceeded,
     FileSizeLimitExceeded,
     NotSupported,
+    ValueTooLarge,
     Encryption,
     IO
 }
+
 impl From<Error> for WriterError {
     fn from(_: Error) -> Self {
         Self::IO
     }
 }
+
+impl From<aead::Error> for WriterError {
+    fn from(_: aead::Error) -> Self {
+        Self::Encryption
+    }
+}
+
 type WriterResult<T> = std::result::Result<T, WriterError>;
 
 pub trait Writer {
@@ -155,18 +161,18 @@ impl<'a> AccountingGuard<'a> {
     }
 }
 
-pub struct AccountingFileWriter<W>
+pub struct AccountingWriter<W>
 where W: AsyncWrite + Unpin
 {
     writer: W,
     accounting_err: Option<WriterError>,
-    accounting: Accounting,
+    accounting: Accounting
 }
 
-impl AccountingFileWriter<File> {
+impl AccountingWriter<File> {
     pub async fn new<P>(
         path: P, max_upload_size: usize, quota: Quota,
-        storage_limit: StorageLimit) -> Result<tokio::io::BufWriter<Self>>
+        storage_limit: StorageLimit) -> Result<BufWriter<Self>>
     where P: AsRef<Path>
     {
         let file = tokio::fs::OpenOptions::new()
@@ -189,7 +195,7 @@ impl AccountingFileWriter<File> {
     }
 }
 
-impl<W> AsyncWrite for AccountingFileWriter<W>
+impl<W> AsyncWrite for AccountingWriter<W>
 where W: AsyncWrite + Unpin
 {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
@@ -221,7 +227,7 @@ where W: AsyncWrite + Unpin
     }
 }
 
-impl<W> Writer for AccountingFileWriter<W>
+impl<W> Writer for AccountingWriter<W>
 where W: AsyncWrite + Unpin
 {
     async fn write<B>(&mut self, bytes: B) -> WriterResult<()>
@@ -247,14 +253,85 @@ where W: AsyncWrite + Unpin
 }
 
 
-fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> WriterResult<Vec<u8>> {
-    let nonce_bytes = nonce_bytes_from_count(*count);
-    *count += 1;
+type CryptoResult<T> = std::result::Result<T, aead::Error>;
 
-    match cipher.encrypt(Nonce::from_slice(&nonce_bytes), string.as_bytes()) {
-        Ok(ciphertext) => Ok(ciphertext),
-        Err(_) => Err(WriterError::Encryption)
+pub struct Crypto {
+    cipher: Aes256Gcm,
+    count: u64,
+    nonce: Nonce<typenum::U12>
+}
+
+impl Crypto {
+    pub fn from_slice(key_slice: &[u8]) -> Self {
+        debug_assert_eq!(key_slice.len(), 32);
+        let key = Key::from_slice(key_slice);
+        let cipher = Aes256Gcm::new(key);
+
+        Self {
+            cipher,
+            count: 0,
+            nonce: Nonce::clone_from_slice(&[0; 12])
+        }
     }
+
+    fn increment_nonce(&mut self) -> () {
+        self.nonce.as_mut_slice()[..8].copy_from_slice(&self.count.to_le_bytes());
+        self.count += 1;
+    }
+
+    pub fn encrypt_string(&mut self, string: String) -> CryptoResult<Vec<u8>> {
+        let mut string_bytes = string.into_bytes();
+        string_bytes.reserve_exact(string_bytes.len() + 16);
+
+        self.increment_nonce();
+        self.cipher.encrypt_in_place(&self.nonce, b"", &mut string_bytes)?;
+        Ok(string_bytes)
+    }
+
+    pub fn encrypt_bytes<'a>(
+        &mut self, bytes: &'a mut [u8], plaintext_len: usize) -> CryptoResult<&'a [u8]>
+    {
+        self.increment_nonce();
+        let mut buffer = FixedBuffer::new(bytes, plaintext_len);
+        self.cipher.encrypt_in_place(&self.nonce, b"", &mut buffer)?;
+        let buffer_len = buffer.len();
+        Ok(&bytes[..buffer_len])
+    }
+
+    pub fn decrypt_string(&mut self, mut bytes: Vec<u8>) -> CryptoResult<String> {
+        self.increment_nonce();
+        self.cipher.decrypt_in_place(&self.nonce, b"", &mut bytes)?;
+        match String::from_utf8(bytes) {
+            Ok(s) => Ok(s),
+            Err(_) => Err(aead::Error {})
+        }
+    }
+
+    pub fn decrypt_bytes<'a>(&mut self, bytes: &'a mut [u8]) -> CryptoResult<&'a [u8]> {
+        self.increment_nonce();
+        let mut buffer = FixedBuffer::new(bytes, bytes.len());
+        self.cipher.decrypt_in_place(&self.nonce, b"", &mut buffer)?;
+        let buffer_len = buffer.len();
+        Ok(&bytes[..buffer_len])
+    }
+}
+
+fn crypto_result<T>(result: std::result::Result<T, aead::Error>) -> Result<T> {
+    result.map_err(|_| Error::other("Encryption error"))
+}
+
+async fn write_header<W>(mut writer: W, data: &[u8], max_length: usize) -> WriterResult<()>
+where W: AsyncWriteExt + Unpin
+{
+    if data.len() > max_length {
+        return Err(WriterError::ValueTooLarge);
+    }
+    let size_prefix = (data.len() as u16).to_be_bytes();
+
+    writer.write_all(&size_prefix).await?;
+    writer.write_all(data).await?;
+
+    Ok(())
 }
 
 // Wrap a writer such that the data written is encrypted with the given key.
@@ -266,12 +343,11 @@ fn encrypt_string(cipher: &Aes256Gcm, string: &str, count: &mut u64) -> WriterRe
 // - Each segment is prefixed by a 16-bit unsigned integer in big-endian byte
 //   order which stores the length of the segment
 // - The file ends with two zero bytes not belonging to any segment.
-pub struct EncryptedFileWriter<W>
+pub struct EncryptedWriter<W>
 where W: Writer + AsyncWrite + Unpin
 {
     writer: W,
-    cipher: Aes256Gcm,
-    count: u64,
+    crypto: Crypto,
 
     buffer: [u8; SIZE_PREFIX_LEN + MAX_CHUNK_SIZE],
     plaintext_len: usize,
@@ -281,36 +357,35 @@ where W: Writer + AsyncWrite + Unpin
     ending_bytes_written: u8,
 }
 
-impl<W> EncryptedFileWriter<W>
+impl<W> EncryptedWriter<W>
 where W: Writer + AsyncWrite + Unpin
 {
-    pub async fn new(writer: W, name: &str, mime: &str)
-        -> WriterResult<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
+    pub async fn new(mut writer: W, name: String, mime: String)
+        -> WriterResult<(Self, Vec<u8>)>
     {
         let mut key_slice = [0; 32];
         random_bytes(&mut key_slice);
-
         let encoded_key = b64::base64_encode(&key_slice);
-        let key = Key::from_slice(&key_slice);
+        let mut crypto = Crypto::from_slice(&key_slice);
 
-        let cipher = Aes256Gcm::new(key);
-        let mut count = 0;
+        write_header(
+            &mut writer, &crypto.encrypt_string(name)?, MAX_FILE_NAME_CIPHERTEXT_SIZE).await?;
+        write_header(
+            &mut writer, &crypto.encrypt_string(mime)?, MAX_MIME_TYPE_CIPHERTEXT_SIZE).await?;
 
-        let name_cipher = b64::base64_encode(&encrypt_string(&cipher, name, &mut count)?);
-        let mime_cipher = b64::base64_encode(&encrypt_string(&cipher, mime, &mut count)?);
+        Ok((Self::with_crypto(writer, crypto), encoded_key))
+    }
 
-        let this = Self {
+    pub fn with_crypto(writer: W, crypto: Crypto) -> Self {
+        Self {
             writer,
-            cipher,
+            crypto,
             buffer: [0; SIZE_PREFIX_LEN + MAX_CHUNK_SIZE],
             segment_write_start: 0,
             plaintext_len: 0,
             segment_len: 0,
-            count,
             ending_bytes_written: 0
-        };
-        
-        Ok((this, encoded_key, name_cipher, mime_cipher))
+        }
     }
 
     // Returns Poll::Pending untill the full ciphertext is written
@@ -319,18 +394,15 @@ where W: Writer + AsyncWrite + Unpin
 
         // Encrypt a new plaintext chunk
         if this.segment_len == 0 {
-            let nonce_bytes = nonce_bytes_from_count(this.count);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-            this.count += 1;
-
             let chunk = &mut this.buffer[SIZE_PREFIX_LEN..];
-            let mut buffer = FixedBuffer::new(chunk, this.plaintext_len);
-            if this.cipher.encrypt_in_place(nonce, b"", &mut buffer).is_err() {
-                return Poll::Ready(err("encrypt_in_place"));
-            } else if buffer.len() > MAX_CHUNK_SIZE {
+            let ciphertext = match this.crypto.encrypt_bytes(chunk, this.plaintext_len) {
+                Ok(ciphertext) => ciphertext,
+                Err(_) => return Poll::Ready(err("Encryption Error"))
+            };
+            if ciphertext.len() > MAX_CHUNK_SIZE {
                 return Poll::Ready(err("Plaintext too large"));
             }
-            let ciphertext_len = buffer.len();
+            let ciphertext_len = ciphertext.len();
 
             let size_prefix = &mut this.buffer[..SIZE_PREFIX_LEN];
             size_prefix.copy_from_slice(&(ciphertext_len as u16).to_be_bytes());
@@ -361,7 +433,7 @@ where W: Writer + AsyncWrite + Unpin
     }
 }
 
-impl<W> Writer for EncryptedFileWriter<W>
+impl<W> Writer for EncryptedWriter<W>
 where W: Writer + AsyncWrite + Unpin
 {
     async fn write<B>(&mut self, bytes: B) -> WriterResult<()>
@@ -380,7 +452,7 @@ where W: Writer + AsyncWrite + Unpin
     }
 }
 
-impl<W> AsyncWrite for EncryptedFileWriter<W>
+impl<W> AsyncWrite for EncryptedWriter<W>
 where W: Writer + AsyncWrite + Unpin
 {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
@@ -434,22 +506,25 @@ where W: Writer + AsyncWrite + Unpin
 pub struct EncryptedZipWriter<W>
 where W: Writer + AsyncWrite + Unpin
 {
-    writer: streaming_zip_async::Archive<EncryptedFileWriter<W>>
+    writer: streaming_zip_async::Archive<EncryptedWriter<W>>
 }
 
 impl<W> EncryptedZipWriter<W>
 where W: Writer + AsyncWrite + Unpin
 {
     pub async fn new(writer: W)
-        -> WriterResult<(Self, Vec<u8>, Vec<u8>, Vec<u8>)>
+        -> WriterResult<(Self, Vec<u8>)>
     {
-        let (writer, key, name, mime) = EncryptedFileWriter::new(writer, "", "application/zip").await?;
+        let plaintext_name = String::from("");
+        let plaintext_mime = String::from("application/zip");
+        let (writer, key) = EncryptedWriter::new(
+            writer, plaintext_name, plaintext_mime).await?;
 
         let new = Self {
             writer: streaming_zip_async::Archive::new(writer)
         };
 
-        Ok((new, key, name, mime))
+        Ok((new, key))
     }
 }
 
@@ -486,14 +561,14 @@ where W: Writer + AsyncWrite + Unpin
 
 // Readers
 
-pub struct FileReader {
+pub struct Reader {
     reader: BufReader<File>,
     expire_after: NaiveDateTime,
     last_read_time: NaiveDateTime,
     sleep: Option<Pin<Box<Sleep>>>
 }
 
-impl FileReader {
+impl Reader {
     pub async fn new<P>(
         path: P, start_index: u64, expire_after: NaiveDateTime,
         is_completed: bool) -> Result<Self>
@@ -516,7 +591,7 @@ impl FileReader {
     }
 }
 
-impl AsyncRead for FileReader {
+impl AsyncRead for Reader {
     fn poll_read(
         mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
         -> Poll<Result<()>>
@@ -562,12 +637,26 @@ impl AsyncRead for FileReader {
 }
 
 
-pub struct EncryptedFileReader<R>
+async fn read_header<R>(mut reader: R, max_length: usize) -> Result<Vec<u8>>
+where R: AsyncReadExt + Unpin
+{
+    let mut size_prefix = [0; SIZE_PREFIX_LEN];
+    reader.read_exact(&mut size_prefix).await?;
+    let size = u16::from_be_bytes(size_prefix) as usize;
+    if size > max_length {
+        return Err(Error::other("Value too large"));
+    }
+
+    let mut data = vec![0; size];
+    reader.read_exact(&mut data).await?;
+    Ok(data)
+}
+
+pub struct EncryptedReader<R>
 where R: AsyncRead
 {
     reader: R,
-    cipher: Aes256Gcm,
-    count: u64,
+    crypto: Crypto,
     is_finished: bool,
 
     size_buf: [u8; SIZE_PREFIX_LEN],
@@ -579,55 +668,43 @@ where R: AsyncRead
     plaintext_read_start: usize
 }
 
-impl EncryptedFileReader<FileReader> {
+impl EncryptedReader<Reader> {
     pub async fn new<P>(
         path: P,
         start_index: u64,
         expire_after: NaiveDateTime,
         is_completed: bool,
-        key: &[u8],
-        name_cipher: &[u8],
-        mime_cipher: &[u8]) -> Result<(Self, String, String)>
+        key: &[u8]) -> Result<(Self, String, String)>
     where P: AsRef<Path>
     {
-        let reader = FileReader::new(
+        let reader = Reader::new(
             path, start_index, expire_after, is_completed).await?;
-        Self::with_reader(reader, key, name_cipher, mime_cipher)
+        Self::with_reader(reader, key).await
     }
 }
 
-impl<R> EncryptedFileReader<R>
-where R: AsyncRead
+impl<R> EncryptedReader<R>
+where R: AsyncRead + Unpin
 {
-    pub fn with_reader(
-        reader: R,
-        key: &[u8],
-        name_cipher: &[u8],
-        mime_cipher: &[u8]) -> Result<(Self, String, String)>
-    {
+    pub async fn with_reader(mut reader: R, key: &[u8]) -> Result<(Self, String, String)> {
         let key_slice = b64::base64_decode(key).ok_or(error("base64_decode"))?;
-        let key = Key::from_slice(&key_slice);
-        let cipher = Aes256Gcm::new(key);
-        let mut count = 0;
+        let mut crypto = Crypto::from_slice(&key_slice);
 
-        let name_cipher_decoded = b64::base64_decode(name_cipher)
-            .ok_or(error("decrypting file name ciphertext"))?;
-        let mime_cipher_decoded = b64::base64_decode(mime_cipher)
-            .ok_or(error("decrypting file mime type ciphertext"))?;
+        let name_cipher = read_header(&mut reader, MAX_FILE_NAME_CIPHERTEXT_SIZE).await?;
+        let name = crypto_result(crypto.decrypt_string(name_cipher))?;
 
-        let name = decrypt_string(&cipher, &name_cipher_decoded, &mut count)?;
-        let mime = decrypt_string(&cipher, &mime_cipher_decoded, &mut count)?;
+        let mime_cipher = read_header(&mut reader, MAX_MIME_TYPE_CIPHERTEXT_SIZE).await?;
+        let mime = crypto_result(crypto.decrypt_string(mime_cipher))?;
 
         let new = Self {
             reader,
-            cipher: cipher,
+            crypto,
             size_buf: [0; SIZE_PREFIX_LEN],
             size_buf_len: 0,
             buffer: [0; MAX_CHUNK_SIZE],
             ciphertext_len: 0,
             plaintext_len: 0,
             plaintext_read_start: 0,
-            count,
             is_finished: false
         };
 
@@ -669,7 +746,7 @@ fn poll_read_full<R>(
     }
 }
 
-impl<R> AsyncRead for EncryptedFileReader<R>
+impl<R> AsyncRead for EncryptedReader<R>
 where R: AsyncRead + Unpin
 {
     fn poll_read(
@@ -712,16 +789,12 @@ where R: AsyncRead + Unpin
             assert_eq!(this.ciphertext_len, chunk_size);
 
             // Decrypt the chunk
-            let nonce_bytes = nonce_bytes_from_count(this.count);
-            this.count += 1;
             let ciphertext = &mut this.buffer[..this.ciphertext_len];
-            let mut buffer = FixedBuffer::new(ciphertext, ciphertext.len());
-            if this.cipher.decrypt_in_place(
-                Nonce::from_slice(&nonce_bytes), b"", &mut buffer).is_err()
-            {
-                return Poll::Ready(err("Decrypting ciphertext chunk failed"));
-            }
-            this.plaintext_len = buffer.len();
+            let plaintext = match this.crypto.decrypt_bytes(ciphertext) {
+                Ok(plaintext) => plaintext,
+                Err(_) => return Poll::Ready(err("Decrypting ciphertext chunk"))
+            };
+            this.plaintext_len = plaintext.len();
         }
 
         // At this point, we have a plaintext
@@ -748,18 +821,8 @@ where R: AsyncRead + Unpin
 }
 
 
-fn decrypt_string(cipher: &Aes256Gcm, bytes: &[u8], count: &mut u64) -> Result<String> {
-    let nonce_bytes = nonce_bytes_from_count(*count);
-    *count += 1;
-
-    match cipher.decrypt(Nonce::from_slice(&nonce_bytes), bytes) {
-        Ok(plaintext) => String::from_utf8(plaintext).or(Err(Error::from(ErrorKind::Other))),
-        Err(_) => Err(Error::from(ErrorKind::Other))
-    }
-}
-
 fn error(message: &'static str) -> Error {
-    Error::new(ErrorKind::Other, message)
+    Error::other(message)
 }
 
 fn err<T>(message: &'static str) -> Result<T> {

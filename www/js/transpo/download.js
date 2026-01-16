@@ -37,6 +37,41 @@ function generateFileName(uploadID, mime) {
     return name;
 }
 
+function mergeBuffers(b1, b2) {
+    const merged = new Uint8Array(b1.length + b2.length);
+    merged.set(b1);
+    merged.set(b2, b1.length);
+    return merged;
+}
+
+async function sizedRead(reader, buffer, size) {
+    while (buffer.length < size) {
+        const { done, value } = await reader.read();
+        if (done) {
+            throw new Error("Unexpected end of stream");
+        }
+        buffer = mergeBuffers(buffer, value);
+    }
+
+    return buffer;
+}
+
+// Read a single length-prefixed chunk
+async function readChunk(reader, buffer, maxLength) {
+    buffer = await sizedRead(reader, buffer, 2);
+    const length = buffer[0] * 256 + buffer[1];
+    if (length > maxLength) {
+        throw new Error("Chunk too long");
+    }
+    buffer = buffer.subarray(2);
+
+    buffer = await sizedRead(reader, buffer, length);
+    return {
+        'chunk': buffer.subarray(0, length),
+        'leftover': buffer.subarray(length)
+    };
+}
+
 // `state` is an object with the following fields:
 // - `segment` buffer into which ciphertext is written
 // - `segmentWriteStart` index into segment where next read should be inserted
@@ -120,24 +155,36 @@ async function decryptBufferAndEnqueue(buffer, controller, key, state) {
 }
 
 async function decryptedStream(r, key) {
-    let segment = new Uint8Array(2 + maxCiphertextSegmentSize);
-    let segmentWriteStart = 0;
-    // count starts at 2 since we first decrypt file name and mime type
-    let count = 2;
+    const reader = r.body.getReader();
 
-    let state = {
-        'segment': segment,
-        'segmentWriteStart': segmentWriteStart,
-        'count': count,
+    // First, read the file name and mime type
+    let nameChunk;
+    let mimeChunk;
+    let leftover = new Uint8Array(0);
+    ({ 'chunk': nameChunk, leftover } = await readChunk(reader, leftover, 512));
+    ({ 'chunk': mimeChunk, leftover } = await readChunk(reader, leftover, 272));
+    const nameBytes = await decrypt(key, 0, nameChunk);
+    const mimeBytes = await decrypt(key, 1, mimeChunk);
+    const name = textDecoder.decode(nameBytes);
+    const mime = textDecoder.decode(mimeBytes);
+
+    // Then, read the file contents
+    const state = {
+        'segment': new Uint8Array(2 + maxCiphertextSegmentSize),
+        'segmentWriteStart': 0,
+        'count': 2, // count starts at 2 since we first decrypt file name and mime type
         'isFinished': false
     };
 
     let stream;
-
     if (typeof TransformStream == typeof undefined) {
         // If TransformStream is unavailable, use ReadableStream
-        const reader = r.body.getReader();
         stream = new ReadableStream({
+            async start(controller) {
+                // handle any leftover data from reading the name and mime type
+                await decryptBufferAndEnqueue(leftover, controller, key, state);
+            },
+
             async pull(controller) {
                 // `pull` is expected to enqueue _something_, so loop until
                 // the download finishes, or we enqueue a non-zero number
@@ -161,14 +208,25 @@ async function decryptedStream(r, key) {
             }
         });
     } else {
+        // We *must* give up the reader before piping through TransformStream
+        reader.releaseLock();
         stream = r.body.pipeThrough(new TransformStream({
+            async start(controller) {
+                // handle any leftover data from reading the name and mime type
+                await decryptBufferAndEnqueue(leftover, controller, key, state);
+            },
+
             async transform(buffer, controller) {
                 await decryptBufferAndEnqueue(buffer, controller, key, state);
             }
         }));
     }
 
-    return stream;
+    return {
+        'stream': stream,
+        'name': name,
+        'mime': mime
+    };
 }
 
 
@@ -176,48 +234,32 @@ async function decryptedResponse(url) {
     const key = await getKeyFromURL(url);
     const uploadID = getUploadIDFromURL(url);
 
-    let r = await fetch(uploadID + "/info" + url.search);
+    const r = await fetch(url);
     if (!r.ok) {
         return r;
     }
 
-    const info = await r.json();
-    const nameCipherBytes = stringToBytes(b64Decode(info.name));
-    const mimeCipherBytes = stringToBytes(b64Decode(info.mime));
-
-    const nameBytes = await decrypt(key, 0, nameCipherBytes);
-    const mimeBytes = await decrypt(key, 1, mimeCipherBytes);
-
-    const mime = textDecoder.decode(mimeBytes);
-
-    let name;
-    if (nameBytes.length == 0) {
+    let { stream, name, mime } = await decryptedStream(r, key);
+    if (name.length == 0) {
         // assign a file name if the upload is unnamed
         name = generateFileName(uploadID, mime);
-    } else {
-        name = textDecoder.decode(nameBytes);
     }
     name = encodeURIComponent(name);
+
+    const length = r.headers.get("Transpo-Ciphertext-Length");
 
     const headers = new Headers();
     headers.append("Content-Type", mime);
     headers.append("Content-Disposition", "attachment; filename=\"" + name + "\"");
-    if (info.size > 0) {
-        headers.append("Content-Length", String(info.size));
+    if (length > 0) {
+        headers.append("Content-Length", length);
     }
 
-    r = await fetch(url);
-    if (r.ok) {
-        const stream = await decryptedStream(r, key);
-
-        const init = {
-            "status": 200,
-            "headers": headers
-        };
-        return new Response(stream, init);
-    } else {
-        return r;
-    }
+    const init = {
+        "status": 200,
+        "headers": headers
+    };
+    return new Response(stream, init);
 }
 
 // create a file download prompt for a response

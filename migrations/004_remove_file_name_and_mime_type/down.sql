@@ -1,0 +1,2 @@
+ALTER TABLE uploads ADD COLUMN file_name TEXT;
+ALTER TABLE uploads ADD COLUMN mime_type VARCHAR(512);

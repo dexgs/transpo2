@@ -58,8 +58,6 @@ const VALUE_ON: &'static str = "on";
 const MINUTES_QUERY: &'static str = "minutes";
 const PASSWORD_QUERY: &'static str = "password";
 const MAX_DOWNLOADS_QUERY: &'static str = "max-downloads";
-const FILE_NAME_QUERY: &'static str = "file-name";
-const MIME_TYPE_QUERY: &'static str = "mime-type";
 
 #[derive(Debug)]
 enum UploadError {
@@ -98,9 +96,7 @@ impl From<WriterError> for UploadError {
 struct UploadQuery {
     minutes: Option<u32>,
     max_downloads: Option<u32>,
-    password: Option<String>,
-    file_name: Option<Vec<u8>>,
-    mime_type: Option<Vec<u8>>
+    password: Option<String>
 }
 
 impl UploadQuery {
@@ -123,8 +119,6 @@ impl UploadQuery {
                     MINUTES_QUERY => upload_query.minutes = Some(value.parse().ok()?),
                     PASSWORD_QUERY => upload_query.password = Some(decode(value).ok().map(|s| s.into_owned())?),
                     MAX_DOWNLOADS_QUERY => upload_query.max_downloads = Some(value.parse().ok()?),
-                    FILE_NAME_QUERY => upload_query.file_name = Some(value.to_owned().into_bytes()),
-                    MIME_TYPE_QUERY => upload_query.mime_type = Some(value.to_owned().into_bytes()),
                     _ => return None
                 }
             }
@@ -138,19 +132,15 @@ impl UploadQuery {
             MINUTES_QUERY => self.minutes.is_some(),
             PASSWORD_QUERY => self.password.is_some(),
             MAX_DOWNLOADS_QUERY => self.max_downloads.is_some(),
-            FILE_NAME_QUERY => self.file_name.is_some(),
-            MIME_TYPE_QUERY => self.mime_type.is_some(),
             _ => false
         }
     }
 
-    fn get_values(self) -> Option<(u32, Option<u32>, Option<String>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+    fn get_values(self) -> Option<(u32, Option<u32>, Option<String>)> {
         Some((
-                self.minutes?,
-                self.max_downloads,
-                self.password,
-                self.file_name,
-                self.mime_type
+            self.minutes?,
+            self.max_downloads,
+            self.password
         ))
     }
 }
@@ -331,7 +321,7 @@ pub async fn handle_websocket(
 {
     let query = UploadQuery::new(conn.querystring());
 
-    if let Some((minutes, max_downloads, password, file_name, mime_type)) =
+    if let Some((minutes, max_downloads, password)) =
         query.and_then(|q| q.get_values())
     {
         let (upload_id, upload_id_string, upload_dir) = {
@@ -344,8 +334,7 @@ pub async fn handle_websocket(
         let form = UploadForm::new(true, minutes, max_downloads, password);
 
         let db_write_succeeded = write_to_db(
-            form, upload_id, file_name, mime_type,
-            db_pool.clone(), config.clone()).await.is_some();
+            form, upload_id, db_pool.clone(), config.clone()).await.is_some();
 
         let send_id_succeeded = conn.send_string(upload_id_string.clone()).await.is_ok();
 
@@ -386,12 +375,14 @@ pub async fn handle_websocket(
 }
 
 async fn websocket_read_loop(
-    conn: &mut WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>, quota: Quota, storage_limit: StorageLimit)
-    -> std::result::Result<(), UploadError>
+    conn: &mut WebSocketConn, upload_path: &PathBuf, config: Arc<TranspoConfig>,
+    quota: Quota, storage_limit: StorageLimit) -> std::result::Result<(), UploadError>
 {
     let timeout_duration = time::Duration::from_millis(config.read_timeout_milliseconds as u64);
-    let mut writer = AccountingFileWriter::new(
+    let mut writer = AccountingWriter::new(
         upload_path, config.max_upload_size_bytes, quota, storage_limit).await?;
+
+    // writer.write_metadata(name, mime_type)
 
     while let Some(Ok(msg)) = conn
         .next()
@@ -478,39 +469,32 @@ where R: AsyncReadExt + Unpin
 
     async fn parse_form<P>(
         &mut self, upload_path: P, quota: Quota, storage_limit: StorageLimit, max_upload_size: usize)
-        -> std::result::Result<(Option<Vec<u8>>, Vec<u8>, Vec<u8>), UploadError>
+        -> std::result::Result<Option<Vec<u8>>, UploadError>
     where P: AsRef<Path>
     {
-        if let (upload_form, ParseResult::NewValue(_, cd, ct, val)) = self.next_file().await? {
+        if let (upload_form, ParseResult::NewValue(_, cd, _ct, val)) = self.next_file().await? {
             let file_name_str = get_file_name(cd).ok_or(UploadError::Protocol)?;
-            let mime_type_str = ct;
-            // https://datatracker.ietf.org/doc/html/rfc4288#section-4.2
-            if mime_type_str.len() > 255 || mime_type_str.is_empty() {
-                return Err(UploadError::Protocol);
-            }
 
-            let mut inner_writer = AccountingFileWriter::new(
+            let mut inner_writer = AccountingWriter::new(
                 upload_path, max_upload_size, quota, storage_limit).await?;
 
             let server_side_processing = upload_form.server_side_processing == Some(true);
-            let (key, file_name, mime_type) = if server_side_processing {
+            let key = if server_side_processing {
                 // Server-side encrypted + zipped upload
-                let (mut writer, key, file_name, mime_type) =
+                let (mut writer, key) =
                     EncryptedZipWriter::new(inner_writer).await?;
                 writer.start_new_file(file_name_str).await?;
                 writer.write(val).await?;
                 self.parse_form_with_writer(writer).await?;
-                (Some(key), file_name, mime_type)
+                Some(key)
             } else {
                 // Client-side encrypted upload
-                let file_name = file_name_str.as_bytes().to_owned();
-                let mime_type = mime_type_str.as_bytes().to_owned();
                 Writer::write(&mut inner_writer, val).await?;
                 self.parse_form_with_writer(inner_writer).await?;
-                (None, file_name, mime_type)
+                None
             };
 
-            return Ok((key, file_name, mime_type));
+            return Ok(key);
         }
 
         Err(UploadError::Protocol)
@@ -697,19 +681,12 @@ pub async fn handle_post(
     let upload_path = upload_dir.join("upload");
 
     let query = UploadQuery::new(conn.querystring());
-
-    let mut key = None;
-    let (mut form, mut file_name, mut mime_type) = if let Some(
-        (minutes, max_downloads, password, file_name, mime_type))
-        = query.and_then(|q| q.get_values())
-    {
-        (UploadForm::new(true, minutes, max_downloads, password), file_name, mime_type)
-    } else {
-        (UploadForm::default(), None, None)
+    let mut form = match query.and_then(|q| q.get_values()) {
+        Some((minutes, max_downloads, password)) => UploadForm::new(true, minutes, max_downloads, password),
+        None => UploadForm::default()
     };
 
     let mut db_write_success = false;
-
     // If a time limit has already been provided via the query string, write
     // the current data in the form to the DB to allow the file to be downloaded
     // while it uploads. If the client did not include the needed information
@@ -717,10 +694,7 @@ pub async fn handle_post(
     // read by `parse_form`.
     if form.has_time_limit() {
         db_write_success = write_to_db(
-            form, upload_id, file_name, mime_type,
-            db_pool.clone(), config.clone()).await.is_some();
-        file_name = None;
-        mime_type = None;
+            form, upload_id, db_pool.clone(), config.clone()).await.is_some();
         form = UploadForm::default();
     }
 
@@ -731,16 +705,13 @@ pub async fn handle_post(
     let req_body = conn.request_body().await.with_max_len(max_len);
     let timeout_duration = time::Duration::from_millis(
         config.read_timeout_milliseconds as u64);
-    let mut parser = UploadFormParser::new(boundary, form, timeout_duration, req_body).unwrap();
-    let parse_result = parser.parse_form(upload_path, quota, storage_limit.clone(), config.max_upload_size_bytes).await;
-    let parse_success = match parse_result {
-        Ok((form_key, form_file_name, form_mime_type)) => {
-            key = form_key;
-            file_name = Some(form_file_name);
-            mime_type = Some(form_mime_type);
-            true
-        },
-        Err(_) => false
+    let mut parser = UploadFormParser::new(
+        boundary, form, timeout_duration, req_body).unwrap();
+    let parse_result = parser.parse_form(
+        upload_path, quota, storage_limit.clone(), config.max_upload_size_bytes).await;
+    let (key, parse_success) = match parse_result {
+        Ok(key) => (key, true),
+        Err(_) => (None, false)
     };
     let form = parser.upload_form;
 
@@ -751,8 +722,7 @@ pub async fn handle_post(
     // upload body succeeded, try to write one now.
     if parse_success && !db_write_success {
         db_write_success = write_to_db(
-            form, upload_id, file_name, mime_type,
-            db_pool.clone(), config.clone()).await.is_some();
+            form, upload_id, db_pool.clone(), config.clone()).await.is_some();
     }
 
     // write that the upload is completed into the db
@@ -842,8 +812,8 @@ fn get_file_name(cd: &str) -> Option<&str> {
 // Insert the metadata for an upload into the database. Return the number of
 // affected rows (or None if there was an error)
 async fn write_to_db(
-    form: UploadForm, id: i64, file_name: Option<Vec<u8>>, mime_type: Option<Vec<u8>>,
-    db_pool: Arc<DbConnectionPool>, config: Arc<TranspoConfig>) -> Option<usize>
+    form: UploadForm, id: i64, db_pool: Arc<DbConnectionPool>,
+    config: Arc<TranspoConfig>) -> Option<usize>
 {
 
     let time_limit_minutes = 
@@ -852,16 +822,13 @@ async fn write_to_db(
         + (form.days? as usize) * 60 * 24;
     let time_limit_minutes = cmp::min(time_limit_minutes, config.max_upload_age_minutes);
 
-    let file_name = String::from_utf8(file_name?).ok()?;
-    let mime_type = String::from_utf8(mime_type?).ok()?;
-
     let password_hash = if form.is_password_protected() {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         let hash = argon2.hash_password(form.password?.as_bytes(), &salt).ok()?
             .to_string()
             .into_bytes();
-        assert_eq!(hash.len(), 96);
+        debug_assert_eq!(hash.len(), 96);
         Some(hash)
     } else {
         None
@@ -879,8 +846,6 @@ async fn write_to_db(
 
     let upload = Upload {
         id: id,
-        file_name: file_name,
-        mime_type: mime_type,
         password_hash: password_hash,
         remaining_downloads: remaining_downloads,
         expire_after: expire_after,

@@ -156,6 +156,8 @@ fn check_password(password: &Option<Vec<u8>>, upload: &Upload) -> bool {
 }
 
 
+// TODO: decide whether or not to remove this
+/*
 pub async fn info(
     conn: Conn, id_string: String, config: Arc<TranspoConfig>,
     storage_limit: StorageLimit, accessors: Accessors,
@@ -205,6 +207,7 @@ pub async fn info(
         }
     }
 }
+*/
 
 
 async fn get_response_for(
@@ -248,18 +251,20 @@ async fn get_response_for(
         // server-side decryption
         Some(key) => {
             let (reader, mut file_name, mime_type) =
-                EncryptedFileReader::new(
+                EncryptedReader::new(
                     &upload_path, start_index, upload.expire_after,
-                    upload.is_completed, &key, upload.file_name.as_bytes(),
-                    upload.mime_type.as_bytes()).await.ok()?;
+                    upload.is_completed, &key).await.ok()?;
 
             // If file name is missing, assign one based on the app name and upload ID
             if file_name.is_empty() {
                 file_name = format!("{}_{}", config.app_name, id_string);
 
-                if mime_type == "application/zip" {
-                    file_name.push_str(".zip");
-                }
+                let extension = match mime_type.as_ref() {
+                    "application/zip" => ".zip",
+                    "text/plain" => ".txt",
+                    _ => ""
+                };
+                file_name.push_str(extension);
             }
 
             file_name = encode(&file_name).into_owned();
@@ -271,12 +276,12 @@ async fn get_response_for(
         },
         // no server-side decryption
         None => {
-            let reader = FileReader::new(
+            let reader = Reader::new(
                 &upload_path, start_index, upload.expire_after,
                 upload.is_completed).await.ok()?;
             let body = create_async_body_for(
                 reader, accessor_mutex, db_pool, config, storage_limit);
-            (body, upload.file_name, upload.mime_type)
+            (body, String::from(""), String::from(""))
         }
     };
 

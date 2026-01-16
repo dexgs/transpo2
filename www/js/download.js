@@ -76,7 +76,6 @@ function pokeWorker(active) {
     setTimeout(() => { pokeWorker(active); }, 5_000);
 }
 
-
 if ("serviceWorker" in navigator) {
     eventListener = downloadEventHandlerSW;
 
