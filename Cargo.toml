@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 aead = "*"
 aes-gcm = "0.9"
+typenum="*"
 argon2 = "0.4"
 askama = "*"
 blocking = "1.3"
