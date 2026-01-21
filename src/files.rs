@@ -5,8 +5,7 @@ use crate::quotas::*;
 use crate::storage_limit::*;
 
 use std::io::{Result, Error, ErrorKind, SeekFrom};
-use aead::Buffer;
-use aes_gcm::aead::{AeadInPlace, NewAead};
+use aes_gcm::aead::{self, AeadInPlace, NewAead, Buffer};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use chrono::{NaiveDateTime, Local};
 use std::cmp;
@@ -32,6 +31,24 @@ const MAX_MIME_TYPE_CIPHERTEXT_SIZE: usize = 272;
 
 // Writers
 
+// Wrapper macros to avoid repeating when implementing AsyncRead on a struct
+// that wraps another implementor of AsyncRead
+macro_rules! wrap_flush {
+    (self.$writer:ident) => {
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+            pin!(&mut self.$writer).poll_flush(cx)
+        }
+    }
+}
+macro_rules! wrap_shutdown {
+    (self.$writer:ident) => {
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+            pin!(&mut self.$writer).poll_shutdown(cx)
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum WriterError {
     QuotaExceeded,
     StorageLimitExceeded,
@@ -39,12 +56,35 @@ pub enum WriterError {
     NotSupported,
     ValueTooLarge,
     Encryption,
-    IO
+    IO(Error)
 }
 
+impl std::fmt::Display for WriterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for WriterError {}
+
 impl From<Error> for WriterError {
-    fn from(_: Error) -> Self {
-        Self::IO
+    fn from(err: Error) -> Self {
+        match err.kind() {
+            ErrorKind::Other => match err.downcast() {
+                Ok(writer_err) => writer_err,
+                Err(err) => Self::IO(err)
+            },
+            _ => Self::IO(err)
+        }
+    }
+}
+
+impl From<WriterError> for Error {
+    fn from(writer_err: WriterError) -> Self {
+        match writer_err {
+            WriterError::IO(err) => err,
+            _ => Error::other(writer_err)
+        }
     }
 }
 
@@ -54,9 +94,12 @@ impl From<aead::Error> for WriterError {
     }
 }
 
-type WriterResult<T> = std::result::Result<T, WriterError>;
+pub type WriterResult<T> = std::result::Result<T, WriterError>;
 
+#[allow(async_fn_in_trait)]
 pub trait Writer {
+    type Inner;
+
     async fn write<B>(&mut self, _bytes: B) -> WriterResult<()> where B: AsRef<[u8]> {
         Err(WriterError::NotSupported)
     }
@@ -69,40 +112,32 @@ pub trait Writer {
         Err(WriterError::NotSupported)
     }
 
-    async fn finish(self) -> WriterResult<()>
+    async fn finish(self) -> WriterResult<Self::Inner>
     where Self: Sized
     {
-        Ok(())
-    }
-
-    // Needed right now because all the writers are built around an AsyncWrite
-    // implementation, but we need to be able to report some additional error types.
-    fn check(&mut self) -> WriterResult<()> {
-        Ok(())
+        Err(WriterError::NotSupported)
     }
 }
 
 
-// Plain file writer
 impl<W> Writer for BufWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite + Unpin
 {
+    type Inner = W;
+
     async fn write<B>(&mut self, bytes: B) -> WriterResult<()>
     where B: AsRef<[u8]>
     {
-        let result = self.write_all(bytes.as_ref()).await;
-        self.get_mut().check()?;
-        result?;
+        self.write_all(bytes.as_ref()).await?;
         Ok(())
     }
 
-    async fn finish(mut self) -> WriterResult<()> {
-        let result = self.flush().await;
-        self.get_mut().check()?;
-        result?;
-        Ok(())
+    async fn finish(mut self) -> WriterResult<W> {
+        self.flush().await?;
+        Ok(self.into_inner())
     }
 }
+
 
 // Helper struct to handle the accounting for
 // the various limits imposed on uploads
@@ -165,7 +200,6 @@ pub struct AccountingWriter<W>
 where W: AsyncWrite + Unpin
 {
     writer: W,
-    accounting_err: Option<WriterError>,
     accounting: Accounting
 }
 
@@ -182,7 +216,6 @@ impl AccountingWriter<File> {
 
         let this = Self {
             writer: file,
-            accounting_err: None,
             accounting: Accounting {
                 max_upload_size,
                 bytes_written: 0,
@@ -191,7 +224,7 @@ impl AccountingWriter<File> {
             }
         };
 
-        Ok(tokio::io::BufWriter::new(this))
+        Ok(BufWriter::new(this))
     }
 }
 
@@ -202,14 +235,7 @@ where W: AsyncWrite + Unpin
         -> Poll<Result<usize>>
     {
         let this = self.as_mut().get_mut();
-
-        let guard = match this.accounting.check(buf.len()) {
-            Ok(guard) => guard,
-            Err(e) => {
-                this.accounting_err = Some(e);
-                return Poll::Ready(Err(Error::from(ErrorKind::Other)));
-            }
-        };
+        let guard = this.accounting.check(buf.len())?;
 
         let f = pin!(&mut this.writer).poll_write(cx, buf);
         if let Poll::Ready(Ok(bytes_written)) = f {
@@ -218,37 +244,20 @@ where W: AsyncWrite + Unpin
         f
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        pin!(&mut self.writer).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        pin!(&mut self.writer).poll_shutdown(cx)
-    }
+    wrap_flush!(self.writer);
+    wrap_shutdown!(self.writer);
 }
 
 impl<W> Writer for AccountingWriter<W>
 where W: AsyncWrite + Unpin
 {
+    type Inner = W;
+
     async fn write<B>(&mut self, bytes: B) -> WriterResult<()>
     where B: AsRef<[u8]>
     {
-        let result = self.write_all(bytes.as_ref()).await;
-        self.check()?;
-        result?;
+        self.write_all(bytes.as_ref()).await?;
         Ok(())
-    }
-
-    async fn finish(mut self) -> WriterResult<()> {
-        self.flush().await?;
-        Ok(())
-    }
-
-    fn check(&mut self) -> WriterResult<()> {
-        match self.accounting_err.take() {
-            None => Ok(()),
-            Some(e) => Err(e)
-        }
     }
 }
 
@@ -344,7 +353,7 @@ where W: AsyncWriteExt + Unpin
 //   order which stores the length of the segment
 // - The file ends with two zero bytes not belonging to any segment.
 pub struct EncryptedWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite
 {
     writer: W,
     crypto: Crypto,
@@ -353,39 +362,41 @@ where W: Writer + AsyncWrite + Unpin
     plaintext_len: usize,
     segment_len: usize,
     segment_write_start: usize,
-
-    ending_bytes_written: u8,
 }
 
 impl<W> EncryptedWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite + Unpin
 {
-    pub async fn new(mut writer: W, name: String, mime: String)
-        -> WriterResult<(Self, Vec<u8>)>
-    {
+    pub async fn new(writer: W) -> (Self, String) {
         let mut key_slice = [0; 32];
         random_bytes(&mut key_slice);
-        let encoded_key = b64::base64_encode(&key_slice);
-        let mut crypto = Crypto::from_slice(&key_slice);
+        let encoded_key = String::from_utf8(b64::base64_encode(&key_slice)).unwrap();
+        let crypto = Crypto::from_slice(&key_slice);
 
-        write_header(
-            &mut writer, &crypto.encrypt_string(name)?, MAX_FILE_NAME_CIPHERTEXT_SIZE).await?;
-        write_header(
-            &mut writer, &crypto.encrypt_string(mime)?, MAX_MIME_TYPE_CIPHERTEXT_SIZE).await?;
-
-        Ok((Self::with_crypto(writer, crypto), encoded_key))
+        (Self::with_crypto(writer, crypto), encoded_key)
     }
 
-    pub fn with_crypto(writer: W, crypto: Crypto) -> Self {
+    fn with_crypto(writer: W, crypto: Crypto) -> Self {
         Self {
             writer,
             crypto,
             buffer: [0; SIZE_PREFIX_LEN + MAX_CHUNK_SIZE],
             segment_write_start: 0,
             plaintext_len: 0,
-            segment_len: 0,
-            ending_bytes_written: 0
+            segment_len: 0
         }
+    }
+
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
+
+    pub async fn write_metadata(&mut self, name: String, mime: String) -> WriterResult<()> {
+        write_header(
+            &mut self.writer, &self.crypto.encrypt_string(name)?, MAX_FILE_NAME_CIPHERTEXT_SIZE).await?;
+        write_header(
+            &mut self.writer, &self.crypto.encrypt_string(mime)?, MAX_MIME_TYPE_CIPHERTEXT_SIZE).await?;
+        Ok(())
     }
 
     // Returns Poll::Pending untill the full ciphertext is written
@@ -433,27 +444,56 @@ where W: Writer + AsyncWrite + Unpin
     }
 }
 
-impl<W> Writer for EncryptedWriter<W>
-where W: Writer + AsyncWrite + Unpin
+// Helper to be able to call the `encrypt_and_write_buffer` function from async
+struct EncryptAndWriteBuffer<'a, W>
+where W: AsyncWrite
 {
+    inner: Pin<&'a mut EncryptedWriter<W>>
+}
+
+impl<'a, W> EncryptAndWriteBuffer<'a, W>
+where W: AsyncWrite + Unpin
+{
+    fn new(inner: &'a mut EncryptedWriter<W>) -> Self {
+        Self { inner: Pin::new(inner) }
+    }
+}
+
+impl<'a, W> Future for EncryptAndWriteBuffer<'a, W>
+where W: AsyncWrite + Unpin
+{
+    type Output = Result<()>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        match self.inner.plaintext_len {
+            0 => Poll::Ready(Ok(())),
+            _ => self.inner.as_mut().encrypt_and_write_buffer(cx).map_ok(|_| ())
+        }
+    }
+}
+
+impl<W> Writer for EncryptedWriter<W>
+where W: AsyncWrite + Unpin
+{
+    type Inner = W;
+
     async fn write<B>(&mut self, bytes: B) -> WriterResult<()>
         where B: AsRef<[u8]>
     {
-        let result = AsyncWriteExt::write(self, bytes.as_ref()).await;
-        self.writer.check()?;
-        result?;
+        AsyncWriteExt::write_all(self, bytes.as_ref()).await?;
         Ok(())
     }
 
-    async fn finish(mut self) -> WriterResult<()> {
+    async fn finish(mut self) -> WriterResult<W> {
         // Encrypt and write any remaining plaintext in the buffer
-        self.shutdown().await?;
-        Ok(())
+        EncryptAndWriteBuffer::new(&mut self).await?;
+        self.writer.write_all(&[0; SIZE_PREFIX_LEN]).await?;
+        self.writer.flush().await?;
+        Ok(self.writer)
     }
 }
 
 impl<W> AsyncWrite for EncryptedWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite + Unpin
 {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
         -> Poll<Result<usize>>
@@ -463,7 +503,7 @@ where W: Writer + AsyncWrite + Unpin
         } else {
             let this = self.as_mut().get_mut();
             let chunk = &mut this.buffer[2..][..FORM_READ_BUFFER_SIZE];
-            let remaining_chunk = &mut chunk[this.plaintext_len..];
+        let remaining_chunk = &mut chunk[this.plaintext_len..];
             let take = std::cmp::min(remaining_chunk.len(), buf.len());
             remaining_chunk[..take].copy_from_slice(&buf[..take]);
             this.plaintext_len += take;
@@ -471,12 +511,10 @@ where W: Writer + AsyncWrite + Unpin
         }
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
-        -> Poll<Result<()>>
-    {
-        pin!(&mut self.writer).poll_flush(cx)
-    }
+    wrap_flush!(self.writer);
+    wrap_shutdown!(self.writer);
 
+    /*
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
         -> Poll<Result<()>>
     {
@@ -496,41 +534,42 @@ where W: Writer + AsyncWrite + Unpin
                 f => f.map_ok(|_| ())
             }
         } else {
-            // Shut down the underlying writer
             pin!(&mut self.writer).poll_shutdown(cx)
         }
     }
+    */
 }
 
 
 pub struct EncryptedZipWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite + Unpin
 {
     writer: streaming_zip_async::Archive<EncryptedWriter<W>>
 }
 
 impl<W> EncryptedZipWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite + Unpin
 {
-    pub async fn new(writer: W)
-        -> WriterResult<(Self, Vec<u8>)>
-    {
-        let plaintext_name = String::from("");
-        let plaintext_mime = String::from("application/zip");
-        let (writer, key) = EncryptedWriter::new(
-            writer, plaintext_name, plaintext_mime).await?;
+    pub async fn new(writer: W) -> (Self, String) {
+        let (writer, key) = EncryptedWriter::new(writer).await;
 
         let new = Self {
             writer: streaming_zip_async::Archive::new(writer)
         };
 
-        Ok((new, key))
+        (new, key)
+    }
+
+    pub async fn write_metadata(&mut self) -> WriterResult<()> {
+        self.writer.as_mut().write_metadata(String::new(), String::from("application/zip")).await
     }
 }
 
 impl<W> Writer for EncryptedZipWriter<W>
-where W: Writer + AsyncWrite + Unpin
+where W: AsyncWrite + Unpin
 {
+    type Inner = W;
+
     async fn write<B>(&mut self, bytes: B) -> WriterResult<()>
         where B: AsRef<[u8]>
     {
@@ -540,8 +579,7 @@ where W: Writer + AsyncWrite + Unpin
 
     async fn start_new_file(&mut self, name: &str) -> WriterResult<()> {
         let now = Local::now().naive_utc();
-        self.writer.start_new_file(
-            name.to_owned().into_bytes(), now, true).await?;
+        self.writer.start_new_file(name.to_owned().into_bytes(), now, true).await?;
         Ok(())
     }
 
@@ -550,11 +588,10 @@ where W: Writer + AsyncWrite + Unpin
         Ok(())
     }
 
-    async fn finish(mut self) -> WriterResult<()> {
+    async fn finish(mut self) -> WriterResult<W> {
         self.finish_file().await?;
         let inner_writer = self.writer.finish().await?;
-        inner_writer.finish().await?;
-        Ok(())
+        Ok(inner_writer.finish().await?)
     }
 }
 

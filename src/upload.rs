@@ -19,14 +19,14 @@ use std::time;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use trillium::Conn;
-use trillium_websockets::{WebSocketConn, Message, tungstenite::protocol::frame::coding::CloseCode};
+use trillium_websockets::{
+    WebSocketConn, Message,
+    tungstenite::protocol::frame::coding::CloseCode};
 use trillium_askama::AskamaConnExt;
 
 use smol::prelude::*;
 use smol::io::AsyncReadExt;
-
 use blocking::unblock;
-
 use smol_timeout::TimeoutExt;
 
 use chrono::offset::Local;
@@ -60,7 +60,7 @@ const PASSWORD_QUERY: &'static str = "password";
 const MAX_DOWNLOADS_QUERY: &'static str = "max-downloads";
 
 #[derive(Debug)]
-enum UploadError {
+pub enum UploadError {
     FileSize = 1,
     Quota = 2,
     Storage = 3,
@@ -70,11 +70,24 @@ enum UploadError {
     Other = 0
 }
 
+impl From<u8> for UploadError {
+    fn from(b: u8) -> Self {
+        match b {
+            1 => Self::FileSize,
+            2 => Self::Quota,
+            3 => Self::Storage,
+            4 => Self::Protocol,
+            5 => Self::Cancelled,
+            _ => Self::Other
+        }
+    }
+}
+
 impl From<Error> for UploadError {
     fn from(e: Error) -> Self {
         match e.kind() {
             ErrorKind::InvalidInput => Self::Protocol,
-            _ => Self::Other
+            _ => Self::from(WriterError::from(e))
         }
     }
 }
@@ -352,7 +365,7 @@ pub async fn handle_websocket(
                         // Don't handle error, since client may have already closed its
                         // end in which case closing here will return an error, but
                         // this error should *not* cause the upload to fail.
-                        drop(conn.send(Message::Close(None)).await);
+                        drop(conn.close().await);
                         return Ok(()); // return early
                     } else {
                         drop(conn.send(Message::Binary(vec![UploadError::Other as u8])).await);
@@ -370,7 +383,7 @@ pub async fn handle_websocket(
             delete_upload(upload_id, &config.storage_dir, &storage_limit, &mut c)).await;
     }
 
-    drop(conn.send(Message::Close(None)).await);
+    drop(conn.close().await);
     Err(Error::new(ErrorKind::Other, "Upload failed"))
 }
 
@@ -397,15 +410,17 @@ async fn websocket_read_loop(
                     Writer::write(&mut writer, &b).await?;
                 }
             },
-            Message::Close(Some(closeframe)) => {
-                if closeframe.code == CloseCode::Normal {
-                    writer.finish().await?;
-                    return Ok(());
-                } else {
-                    return Err(UploadError::Cancelled);
+            Message::Close(closeframe) => {
+                let code = closeframe.map(|c| c.code);
+                match code {
+                    None | Some(CloseCode::Normal) => {
+                        writer.finish().await?;
+                        return Ok(());
+                    },
+                    _ => return Err(UploadError::Cancelled)
                 }
             },
-            _ => {
+            m => {
                 drop(conn.close().await);
                 return Err(UploadError::Protocol);
             }
@@ -469,7 +484,7 @@ where R: AsyncReadExt + Unpin
 
     async fn parse_form<P>(
         &mut self, upload_path: P, quota: Quota, storage_limit: StorageLimit, max_upload_size: usize)
-        -> std::result::Result<Option<Vec<u8>>, UploadError>
+        -> std::result::Result<Option<String>, UploadError>
     where P: AsRef<Path>
     {
         if let (upload_form, ParseResult::NewValue(_, cd, _ct, val)) = self.next_file().await? {
@@ -482,7 +497,8 @@ where R: AsyncReadExt + Unpin
             let key = if server_side_processing {
                 // Server-side encrypted + zipped upload
                 let (mut writer, key) =
-                    EncryptedZipWriter::new(inner_writer).await?;
+                    EncryptedZipWriter::new(inner_writer).await;
+                writer.write_metadata().await?;
                 writer.start_new_file(file_name_str).await?;
                 writer.write(val).await?;
                 self.parse_form_with_writer(writer).await?;
@@ -738,13 +754,12 @@ pub async fn handle_post(
     if upload_success {
         if let Some(key) = key {
             // If the server handled encryption + archiving
-            let key_string = String::from_utf8(key).unwrap();
             if conn.request_headers().has_header("User-Agent") {
                 // If the client is probably a browser
                 let upload_url = if is_password_protected {
-                    format!("{}#{}", upload_id_string, key_string)
+                    format!("{}#{}", upload_id_string, key)
                 } else {
-                    format!("{}?nopass#{}", upload_id_string, key_string)
+                    format!("{}?nopass#{}", upload_id_string, key)
                 };
 
                 let template = UploadLinkTemplate {
@@ -758,7 +773,7 @@ pub async fn handle_post(
                 conn
                     .with_status(200)
                     .with_response_header("Content-Type", "application/json")
-                    .with_body(format!("\"{}#{}\"", upload_id_string, key_string))
+                    .with_body(format!("\"{}#{}\"", upload_id_string, key))
                     .halt()
             }
         } else {

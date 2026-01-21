@@ -1,31 +1,19 @@
-mod config;
-mod templates;
-mod multipart_form;
-mod concurrency;
-mod upload;
-mod download;
-mod random_bytes;
-mod b64;
-mod files;
-mod constants;
-mod db;
-mod cleanup;
-mod quotas;
-mod storage_limit;
-mod http_errors;
-mod translations;
-
 extern crate diesel;
 
-use config::*;
-use translations::*;
-use constants::*;
-use b64::*;
-use templates::*;
-use concurrency::*;
-use cleanup::*;
-use quotas::*;
-use storage_limit::*;
+use transpo2::config::*;
+use transpo2::translations::*;
+use transpo2::constants::*;
+use transpo2::b64::*;
+use transpo2::templates::*;
+use transpo2::concurrency::*;
+use transpo2::cleanup::*;
+use transpo2::quotas::*;
+use transpo2::storage_limit::*;
+use transpo2::http_errors;
+use transpo2::download;
+use transpo2::upload;
+use transpo2::db;
+use transpo2::translations;
 
 use std::env;
 use std::fs;

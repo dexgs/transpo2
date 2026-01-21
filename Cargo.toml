@@ -3,21 +3,29 @@ name = "transpo2"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+resolver = "3"
+members = ["streaming-zip-async"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aead = "*"
+#aead = "*"
 aes-gcm = "0.9"
+async-tungstenite = { version = "*", features = ["tokio-native-tls"] }
+getopts = "0.2"
+tungstenite = "*"
 typenum="*"
-argon2 = "0.4"
+argon2 = "0.5"
 askama = "*"
 blocking = "1.3"
 chrono = "0.4.42"
 dashmap = "6.1"
 diesel = { version = "2.3", features = ["chrono", "r2d2"] }
 diesel_migrations = "2.2"
+magic = { version = "0.16", optional = true }
 rand = "0.9"
-smol = "1.3"
+smol = "2.0"
 smol-timeout = "0.6"
 streaming-zip-async = { path = "streaming-zip-async" }
 tokio = { version = "1.49", features = ["fs", "io-util"] }
@@ -28,9 +36,15 @@ trillium-static = { version = "0.4", features = ["tokio"] }
 trillium-tokio = "0.4"
 trillium-websockets = "0.6"
 urlencoding = "2.1"
+futures-util = { version = "*", features = ["io"] }
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "magic"]
 sqlite = ["diesel/sqlite"]
 postgres = ["diesel/postgres"]
 mysql = ["diesel/mysql"]
+magic = ["dep:magic"]
+
+[[bin]]
+name = "client"
+path = "src/client/main.rs"

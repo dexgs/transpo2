@@ -167,6 +167,10 @@ impl<W: AsyncWriteExt + Unpin> Archive<W> {
         }
     }
 
+    pub fn as_mut(&mut self) -> &'_ mut W {
+        &mut self.inner
+    }
+
     pub async fn start_new_file(&mut self, name: Vec<u8>, last_modified: NaiveDateTime, use_zip64: bool) -> Result<()> {
         let file = FileHeader {
             name,
