@@ -420,7 +420,7 @@ async fn websocket_read_loop(
                     _ => return Err(UploadError::Cancelled)
                 }
             },
-            m => {
+            _ => {
                 drop(conn.close().await);
                 return Err(UploadError::Protocol);
             }

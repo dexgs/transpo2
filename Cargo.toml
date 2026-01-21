@@ -10,10 +10,8 @@ members = ["streaming-zip-async"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#aead = "*"
 aes-gcm = "0.9"
-async-tungstenite = { version = "*", features = ["tokio-native-tls"] }
-getopts = "0.2"
+async-tungstenite = { version = "*", features = ["tokio-native-tls"], optional = true }
 tungstenite = "*"
 typenum="*"
 argon2 = "0.5"
@@ -39,12 +37,14 @@ urlencoding = "2.1"
 futures-util = { version = "*", features = ["io"] }
 
 [features]
-default = ["sqlite", "magic"]
+default = ["sqlite"]
 sqlite = ["diesel/sqlite"]
 postgres = ["diesel/postgres"]
 mysql = ["diesel/mysql"]
+client = ["dep:async-tungstenite"]
 magic = ["dep:magic"]
 
 [[bin]]
 name = "client"
 path = "src/client/main.rs"
+required-features = ["client"]

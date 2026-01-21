@@ -189,14 +189,15 @@ impl UploadArgs {
     }
 }
 
+#[cfg(feature = "magic")]
 fn get_mime_type(path: &PathBuf) -> Option<String> {
-    if cfg!(feature = "magic") {
-        magic::Cookie::open(magic::cookie::Flags::MIME_TYPE).ok()?
-            .load(&magic::cookie::DatabasePaths::default()).ok()?
-            .file(path).ok()
-    } else {
-        None
-    }
+    magic::Cookie::open(magic::cookie::Flags::MIME_TYPE).ok()?
+        .load(&magic::cookie::DatabasePaths::default()).ok()?
+        .file(path).ok()
+}
+#[cfg(not(feature = "magic"))]
+fn get_mime_type(_path: &PathBuf) -> Option<String> {
+    None
 }
 
 fn http_to_ws(value: &str) -> Option<String> {
