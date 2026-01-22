@@ -513,31 +513,6 @@ where W: AsyncWrite + Unpin
 
     wrap_flush!(self.writer);
     wrap_shutdown!(self.writer);
-
-    /*
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
-        -> Poll<Result<()>>
-    {
-        if self.plaintext_len > 0 {
-            // Write the final segment
-            self.encrypt_and_write_buffer(cx).map_ok(|_| ())
-        } else if self.ending_bytes_written < SIZE_PREFIX_LEN as u8 {
-            // Write a size prefix of 0 to indicate the end of the upload
-            let ending_bytes = &[0; SIZE_PREFIX_LEN][self.ending_bytes_written as usize..];
-            match pin!(&mut self.writer).poll_write(cx, ending_bytes) {
-                Poll::Ready(Ok(0)) => Poll::Ready(Err(Error::from(ErrorKind::WriteZero))),
-                Poll::Ready(Ok(bytes_written)) => {
-                    self.ending_bytes_written += bytes_written as u8;
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                },
-                f => f.map_ok(|_| ())
-            }
-        } else {
-            pin!(&mut self.writer).poll_shutdown(cx)
-        }
-    }
-    */
 }
 
 
