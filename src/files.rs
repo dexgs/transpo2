@@ -231,10 +231,10 @@ impl AccountingWriter<File> {
 impl<W> AsyncWrite for AccountingWriter<W>
 where W: AsyncWrite + Unpin
 {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
         -> Poll<Result<usize>>
     {
-        let this = self.as_mut().get_mut();
+        let this = self.get_mut();
         let guard = this.accounting.check(buf.len())?;
 
         let f = pin!(&mut this.writer).poll_write(cx, buf);
@@ -400,8 +400,8 @@ where W: AsyncWrite + Unpin
     }
 
     // Returns Poll::Pending untill the full ciphertext is written
-    fn encrypt_and_write_buffer(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<usize>> {
-        let this = self.as_mut().get_mut();
+    fn encrypt_and_write_buffer(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<usize>> {
+        let this = self.get_mut();
 
         // Encrypt a new plaintext chunk
         if this.segment_len == 0 {
@@ -429,13 +429,13 @@ where W: AsyncWrite + Unpin
         };
 
         // Check if the entire segment was written
-        self.segment_write_start += bytes_written;
-        debug_assert!(self.segment_write_start <= self.segment_len);
-        if self.segment_write_start == self.segment_len {
+        this.segment_write_start += bytes_written;
+        debug_assert!(this.segment_write_start <= this.segment_len);
+        if this.segment_write_start == this.segment_len {
             // Reset state variables
-            self.segment_write_start = 0;
-            self.plaintext_len = 0;
-            self.segment_len = 0;
+            this.segment_write_start = 0;
+            this.plaintext_len = 0;
+            this.segment_len = 0;
         }
 
         // Return "pending" until the full segment is written
@@ -495,15 +495,15 @@ where W: AsyncWrite + Unpin
 impl<W> AsyncWrite for EncryptedWriter<W>
 where W: AsyncWrite + Unpin
 {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
         -> Poll<Result<usize>>
     {
         if self.plaintext_len >= FORM_READ_BUFFER_SIZE {
             self.encrypt_and_write_buffer(cx)
         } else {
-            let this = self.as_mut().get_mut();
+            let this = self.get_mut();
             let chunk = &mut this.buffer[2..][..FORM_READ_BUFFER_SIZE];
-        let remaining_chunk = &mut chunk[this.plaintext_len..];
+            let remaining_chunk = &mut chunk[this.plaintext_len..];
             let take = std::cmp::min(remaining_chunk.len(), buf.len());
             remaining_chunk[..take].copy_from_slice(&buf[..take]);
             this.plaintext_len += take;
@@ -536,7 +536,8 @@ where W: AsyncWrite + Unpin
     }
 
     pub async fn write_metadata(&mut self) -> WriterResult<()> {
-        self.writer.as_mut().write_metadata(String::new(), String::from("application/zip")).await
+        self.writer.as_mut().write_metadata(
+            String::new(), String::from("application/zip")).await
     }
 }
 
@@ -625,7 +626,7 @@ impl AsyncRead for Reader {
             f => return f
         }
 
-        let this = self.as_mut().get_mut();
+        let this = self.get_mut();
         if let Some(sleep) = this.sleep.as_mut() {
             let bytes_read = initial_remaining - buf.remaining();
             let time_since_last_read = now - this.last_read_time;
@@ -677,7 +678,9 @@ where R: AsyncRead
     buffer: [u8; MAX_CHUNK_SIZE],
     ciphertext_len: usize,
     plaintext_len: usize,
-    plaintext_read_start: usize
+    plaintext_read_start: usize,
+
+    bytes_read: usize
 }
 
 impl EncryptedReader<Reader> {
@@ -717,10 +720,15 @@ where R: AsyncRead + Unpin
             ciphertext_len: 0,
             plaintext_len: 0,
             plaintext_read_start: 0,
-            is_finished: false
+            is_finished: false,
+            bytes_read: 0
         };
 
         Ok((new, name, mime))
+    }
+
+    pub fn bytes_read(&self) -> usize {
+        self.bytes_read
     }
 }
 
@@ -758,6 +766,8 @@ fn poll_read_full<R>(
     }
 }
 
+// TODO: wrap calls to poll_read_full in a function which also updates the
+// relevant counts!
 impl<R> AsyncRead for EncryptedReader<R>
 where R: AsyncRead + Unpin
 {
@@ -777,6 +787,7 @@ where R: AsyncRead + Unpin
             // Get the size of the next chunk to read
             let (bytes_read, f) = poll_read_full(
                 pin!(&mut this.reader), cx, &mut this.size_buf[this.size_buf_len..]);
+            this.bytes_read += bytes_read;
             this.size_buf_len += bytes_read;
             if let Some(f) = f { return f; }
         }
@@ -796,6 +807,7 @@ where R: AsyncRead + Unpin
             // Read the full chunk
             let (bytes_read, f) = poll_read_full(
                 pin!(&mut this.reader), cx, &mut this.buffer[this.ciphertext_len..chunk_size]);
+            this.bytes_read += bytes_read;
             this.ciphertext_len += bytes_read;
             if let Some(f) = f { return f; }
             assert_eq!(this.ciphertext_len, chunk_size);

@@ -35,13 +35,14 @@ trillium-tokio = "0.4"
 trillium-websockets = "0.6"
 urlencoding = "2.1"
 futures-util = { version = "*", features = ["io"] }
+reqwest = { version = "0.13", features = ["default", "native-tls", "stream"], optional = true }
 
 [features]
 default = ["sqlite"]
 sqlite = ["diesel/sqlite"]
 postgres = ["diesel/postgres"]
 mysql = ["diesel/mysql"]
-client = ["dep:async-tungstenite"]
+client = ["dep:async-tungstenite", "dep:reqwest"]
 magic = ["dep:magic"]
 
 [[bin]]
