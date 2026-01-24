@@ -199,8 +199,11 @@ hr {
     margin: 0;
 }
 
-fieldset.togglable-input {
-    overflow: hidden;
+fieldset.togglable-field {
+    height: 25px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
 }
 
 fieldset.togglable-field > label {
@@ -209,6 +212,9 @@ fieldset.togglable-field > label {
 
 fieldset.togglable-field input[type="checkbox"] {
     margin-left: 0;
+    margin-right: 10px;
+    height: 100%;
+    width: 20px;
 }
 
 fieldset.togglable-field div {
@@ -216,26 +222,33 @@ fieldset.togglable-field div {
     flex-direction: row;
     gap: 5px;
     align-items: center;
-    height: 0;
-    margin-top: 0;
+    text-wrap: nowrap;
+    width: 0;
     visibility: hidden;
-    opacity: 0%;
-    transition: all 0.1s;
+    flex-grow: 1;
 }
 
 fieldset.togglable-field input:checked ~ div {
-    height: 30px;
-    margin-top: 5px;
+    height: initial;
+    width: initial;
     visibility: visible;
-    opacity: 100%;
 }
 
+fieldset.togglable-field input:checked ~ label {
+    text-wrap: nowrap;
+    width: 0;
+    visibility: hidden;
+}
+
+
 input[type="text"] {
+    height: 25px;
     flex-grow: 1;
 }
 
 input[type="number"] {
     width: 50px;
+    height: 25px;
 }
 
 input[type="number"]#days-input {
