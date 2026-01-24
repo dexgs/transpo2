@@ -48,14 +48,13 @@ fn print_progress(progress: usize, total: usize) {
     }
 }
 
-pub async fn io_loop<R, W>(mut reader: R, mut writer: W, total_size: usize)
+pub async fn io_loop<R, W>(mut reader: R, mut writer: W, total_size: usize, mut progress: usize)
     -> Result<(), Error>
 where R: AsyncReadExt + Unpin,
       W: AsyncWriteExt + Unpin
 {
     let start_time = Instant::now();
 
-    let mut progress = 0;
     let mut buf = [0; 1024 * 1024];
     loop {
         let bytes_read = reader.read(&mut buf).await?;

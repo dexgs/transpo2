@@ -42,7 +42,7 @@ where S: futures_util::AsyncRead + futures_util::AsyncWrite + Unpin,
 {
     writer.write_metadata(file_name, mime_type).await?;
 
-    io_loop(reader, &mut writer, total_size).await?;
+    io_loop(reader, &mut writer, total_size, 0).await?;
 
     let mut sender = writer.finish().await?.into_inner();
     require(sender.close(None).await, "Closing connection");

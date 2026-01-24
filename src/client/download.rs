@@ -65,5 +65,6 @@ pub async fn main(settings: DownloadSettings) {
     // Print the output path to the user
     println!("{}", path.display());
 
-    require(io_loop(reader, file, ciphertext_length).await, "Downloading file");
+    let progress = reader.bytes_read();
+    require(io_loop(reader, file, ciphertext_length, progress).await, "Downloading file");
 }
