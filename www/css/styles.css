@@ -330,7 +330,7 @@ footer a {
     }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 850px) {
     div#transpo-main {
         border-radius: 0;
         border-left: 0;
