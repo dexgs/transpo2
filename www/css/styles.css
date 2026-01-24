@@ -341,3 +341,9 @@ footer a {
         padding: 0 8px;
     }
 }
+
+@media (max-width: 500px) {
+    button#upload-button, button#download-button {
+        font-size: 14pt;
+    }
+}

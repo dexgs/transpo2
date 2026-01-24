@@ -356,3 +356,9 @@ textarea {
         width: 100vw;
     }
 }
+
+@media (max-width: 720px) {
+    div#file-list-container {
+        height: 150px;
+    }
+}
