@@ -1,7 +1,7 @@
 use chrono::{NaiveDateTime, Local};
-use diesel::MultiConnection;
+use diesel::{MultiConnection, sql_query};
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
+use diesel::r2d2::{ConnectionManager, Pool, CustomizeConnection, Error};
 use diesel_migrations::*;
 use std::path::Path;
 
@@ -178,6 +178,22 @@ where P: AsRef<Path>
 }
 
 
+#[derive(Debug)]
+struct Customizer ();
+impl CustomizeConnection<DbConnection, Error> for Customizer {
+    fn on_acquire(&self, conn: &mut DbConnection) -> Result<(), Error> {
+        #[allow(irrefutable_let_patterns)]
+        #[cfg(feature = "sqlite")]
+        if let DbConnection::Sqlite(conn) = conn {
+            // Increase the busy timeout on sqlite connections to prevent getting
+            // "database is locked" errors when there's many concurrent connections.
+            let set = sql_query("PRAGMA busy_timeout = 15000;");
+            set.execute(conn)?;
+        }
+        Ok(())
+    }
+}
+
 pub type DbConnectionPool = Pool<ConnectionManager<DbConnection>>;
 impl From<&TranspoConfig> for DbConnectionPool {
     fn from(config: &TranspoConfig) -> Self {
@@ -185,6 +201,7 @@ impl From<&TranspoConfig> for DbConnectionPool {
         Pool::builder()
             .max_size(config.max_db_pool_size)
             .min_idle(config.min_db_pool_idle)
+            .connection_customizer(Box::new(Customizer()))
             .build(manager)
             .expect("Creating database connection pool")
     }
