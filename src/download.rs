@@ -156,61 +156,6 @@ fn check_password(password: &Option<Vec<u8>>, upload: &Upload) -> bool {
     }
 }
 
-
-// TODO: decide whether or not to remove this
-/*
-pub async fn info(
-    conn: Conn, id_string: String, config: Arc<TranspoConfig>,
-    storage_limit: StorageLimit, accessors: Accessors,
-    translation: Translation, db_pool: Arc<DbConnectionPool>) -> Conn
-{
-    if id_string.len() != base64_encode_length(ID_LENGTH) {
-        return error_404(conn, config, translation);
-    }
-
-    let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
-
-    let query = parse_query(conn.querystring());
-    let password = query.password;
-
-    let config_ = config.clone();
-    let info = pool_unblock!(db_pool, c, {
-        let upload = get_upload(id, &config_, &storage_limit, &accessors, &mut c)?;
-        let upload_path = config_.storage_dir.join(&id_string).join("upload");
-        let ciphertext_size = if upload.is_completed {
-            std::fs::metadata(&upload_path).ok()?.len()
-        } else {
-            0
-        };
-
-        if !check_password(&password, &upload) {
-            None
-        } else {
-            Some((upload.file_name, upload.mime_type, ciphertext_size))
-        }
-    }).await;
-
-    match info {
-        Some((file_name, mime_type, file_size)) => {
-            conn
-                .with_status(200)
-                .with_response_header("Content-Type", "application/json")
-                .with_body(format!("{{ \
-                        \"name\": \"{}\", \
-                        \"mime\": \"{}\", \
-                        \"size\": {} \
-                    }}",
-                    file_name, mime_type, file_size))
-                .halt()
-        },
-        None => {
-            error_400(conn, config, translation)
-        }
-    }
-}
-*/
-
-
 async fn get_response_for(
     id_string: String, query: DownloadQuery, config: Arc<TranspoConfig>,
     storage_limit: StorageLimit, accessors: Accessors,

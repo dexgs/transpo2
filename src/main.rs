@@ -241,18 +241,6 @@ fn trillium_main(
                 http_errors::error_404(conn, config, translation)
             }
         }}))
-        // TODO: decide whether or not to remove this
-        /*
-        .get("/:file_id/info", (state(s.clone()), move |mut conn: Conn| { async move {
-            let file_id = conn.param("file_id").unwrap().to_owned();
-            let (_, _, translation, _) = get_config(&conn);
-            let state = conn.take_state::<TranspoState>().unwrap();
-
-            download::info(
-                conn, file_id, state.config, state.storage_limit,
-                state.accessors, translation, state.db_pool).await
-        }}))
-        */
         .get("/:file_id/dl", (state(s.clone()), move |mut conn: Conn| { async move {
             let file_id = conn.param("file_id").unwrap().to_owned();
             let (config, _, translation, _) = get_config(&conn);
