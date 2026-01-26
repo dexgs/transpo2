@@ -180,6 +180,7 @@ where P: AsRef<Path>
 #[derive(Debug)]
 struct Customizer ();
 impl CustomizeConnection<DbConnection, Error> for Customizer {
+    #[allow(unused_variables)]
     fn on_acquire(&self, conn: &mut DbConnection) -> Result<(), Error> {
         #[allow(irrefutable_let_patterns)]
         #[cfg(feature = "sqlite")]
