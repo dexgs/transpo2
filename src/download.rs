@@ -216,6 +216,12 @@ async fn get_response_for(
     db_pool: Arc<DbConnectionPool>)
     -> Option<(Body, String, String, usize)>
 {
+    let upload_path = config.storage_dir.join(&id_string).join("upload");
+    if !upload_path.is_file() {
+        // Return early if the file does not exist on disk
+        return None;
+    }
+
     let id = i64_from_b64_bytes(id_string.as_bytes()).unwrap();
 
     let crypto_key = query.crypto_key;
@@ -244,7 +250,6 @@ async fn get_response_for(
 
     let config = config.clone();
 
-    let upload_path = config.storage_dir.join(&id_string).join("upload");
     let ciphertext_size = std::fs::metadata(&upload_path).ok()?.len().try_into().ok()?;
 
     let (body, file_name, mime_type) = match crypto_key {
