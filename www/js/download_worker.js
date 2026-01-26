@@ -1,5 +1,4 @@
-self.importScripts("./js/transpo/crypto_for_worker.js");
-self.importScripts("./js/transpo/download_for_worker.js");
+import { decryptedResponse } from "./js/transpo/download.js"
 
 // needed in case we need to generate a file name
 let appName;

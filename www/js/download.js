@@ -39,7 +39,10 @@ async function downloadEventHandlerNoSW(e) {
 
 
 async function setupWorker() {
-    let registration = await navigator.serviceWorker.register("/download_worker.js");
+    const options = {
+        type: "module"
+    };
+    const registration = await navigator.serviceWorker.register("/download_worker.js", options);
 
     await navigator.serviceWorker.ready;
     navigator.serviceWorker.startMessages();
