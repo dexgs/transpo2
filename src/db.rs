@@ -1,5 +1,5 @@
 use chrono::{NaiveDateTime, Local};
-use diesel::{MultiConnection, sql_query};
+use diesel::MultiConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, CustomizeConnection, Error};
 use diesel_migrations::*;
@@ -177,7 +177,6 @@ where P: AsRef<Path>
         .expect("Running database migrations");
 }
 
-
 #[derive(Debug)]
 struct Customizer ();
 impl CustomizeConnection<DbConnection, Error> for Customizer {
@@ -187,7 +186,7 @@ impl CustomizeConnection<DbConnection, Error> for Customizer {
         if let DbConnection::Sqlite(conn) = conn {
             // Increase the busy timeout on sqlite connections to prevent getting
             // "database is locked" errors when there's many concurrent connections.
-            let set = sql_query("PRAGMA busy_timeout = 15000;");
+            let set = diesel::sql_query("PRAGMA busy_timeout = 15000;");
             set.execute(conn)?;
         }
         Ok(())
