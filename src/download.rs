@@ -17,6 +17,7 @@ use std::pin::{pin, Pin};
 use blocking::*;
 use trillium::{Conn, Body};
 use tokio::io::{AsyncRead, ReadBuf};
+use tokio::fs::metadata;
 use trillium_tokio::async_compat::Compat;
 
 use urlencoding::{decode, encode};
@@ -250,7 +251,7 @@ async fn get_response_for(
 
     let config = config.clone();
 
-    let ciphertext_size = std::fs::metadata(&upload_path).ok()?.len().try_into().ok()?;
+    let ciphertext_size = metadata(&upload_path).await.ok()?.len().try_into().ok()?;
 
     let (body, file_name, mime_type) = match crypto_key {
         // server-side decryption
