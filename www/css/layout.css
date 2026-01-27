@@ -221,15 +221,14 @@ fieldset.togglable-field div {
     flex-direction: row;
     gap: 5px;
     align-items: center;
-    width: 0;
-    visibility: hidden;
     flex-grow: 1;
 }
 
-fieldset.togglable-field input:checked ~ div {
-    height: initial;
-    width: initial;
-    visibility: visible;
+fieldset.togglable-field input:not(:checked) ~ div {
+    max-width: 0;
+    text-wrap: nowrap;
+    overflow: hidden;
+    visibility: hidden;
 }
 
 fieldset.togglable-field input:checked ~ label {
