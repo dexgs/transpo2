@@ -1,19 +1,27 @@
 extern crate diesel;
 
-use transpo2::config::*;
-use transpo2::translations::*;
 use transpo2::constants::*;
 use transpo2::b64::*;
-use transpo2::templates::*;
-use transpo2::concurrency::*;
-use transpo2::cleanup::*;
-use transpo2::quotas::*;
-use transpo2::storage_limit::*;
-use transpo2::http_errors;
-use transpo2::download;
-use transpo2::upload;
-use transpo2::db;
-use transpo2::translations;
+
+mod cleanup;
+mod concurrency;
+mod config;
+mod db;
+mod download;
+mod http_errors;
+mod quotas;
+mod storage_limit;
+mod templates;
+mod translations;
+mod upload;
+
+use cleanup::*;
+use concurrency::*;
+use config::*;
+use quotas::*;
+use storage_limit::*;
+use templates::*;
+use translations::*;
 
 use std::env;
 use std::fs;

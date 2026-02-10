@@ -1,7 +1,14 @@
-use crate::multipart_form::{self, *};
-use crate::b64;
-use crate::files::*;
-use crate::constants::*;
+mod accounting_writer;
+use accounting_writer::*;
+
+mod multipart_form;
+use multipart_form::*;
+
+use transpo2::b64;
+use transpo2::files::*;
+use transpo2::constants::*;
+use transpo2::upload_error::*;
+
 use crate::config::*;
 use crate::db::*;
 use crate::http_errors::*;
@@ -37,9 +44,6 @@ use urlencoding::decode;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 
-mod accounting_writer;
-use accounting_writer::*;
-
 
 const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
@@ -61,51 +65,6 @@ const VALUE_ON: &'static str = "on";
 const MINUTES_QUERY: &'static str = "minutes";
 const PASSWORD_QUERY: &'static str = "password";
 const MAX_DOWNLOADS_QUERY: &'static str = "max-downloads";
-
-#[derive(Debug)]
-pub enum UploadError {
-    FileSize = 1,
-    Quota = 2,
-    Storage = 3,
-    Protocol = 4,
-    Cancelled = 5,
-
-    Other = 0
-}
-
-impl From<u8> for UploadError {
-    fn from(b: u8) -> Self {
-        match b {
-            1 => Self::FileSize,
-            2 => Self::Quota,
-            3 => Self::Storage,
-            4 => Self::Protocol,
-            5 => Self::Cancelled,
-            _ => Self::Other
-        }
-    }
-}
-
-impl From<Error> for UploadError {
-    fn from(e: Error) -> Self {
-        match e.kind() {
-            ErrorKind::InvalidInput => Self::Protocol,
-            _ => Self::from(WriterError::from(e))
-        }
-    }
-}
-
-impl From<WriterError> for UploadError {
-    fn from(e: WriterError) -> Self {
-        match e {
-            WriterError::QuotaExceeded => Self::Quota,
-            WriterError::StorageLimitExceeded => Self::Storage,
-            WriterError::FileSizeLimitExceeded => Self::FileSize,
-            WriterError::NotSupported => Self::Protocol,
-            _ => Self::Other
-        }
-    }
-}
 
 
 #[derive(Default)]

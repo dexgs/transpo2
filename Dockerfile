@@ -8,10 +8,10 @@ COPY . .
 
 RUN apk add cargo gcc musl-dev sqlite-dev libpq-dev mariadb-connector-c-dev
 RUN cargo build --release --no-default-features --features $FEATURES
-RUN strip target/release/transpo2
+RUN strip target/release/server
 
 RUN mkdir -p pkg
-RUN mv target/release/transpo2 pkg
+RUN mv target/release/server pkg
 RUN mv templates pkg
 RUN mv www pkg
 RUN mv migrations pkg
@@ -38,4 +38,4 @@ RUN apk add --no-cache libgcc `echo $FEATURES \
 
 FROM base
 USER transpo
-CMD ["./transpo2", "-Q", "-d", "/transpo_storage"]
+CMD ["./server", "-Q", "-d", "/transpo_storage"]

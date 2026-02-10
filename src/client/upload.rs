@@ -13,7 +13,8 @@ use urlencoding::encode;
 
 use crate::settings::UploadSettings;
 use crate::util::*;
-use transpo2::{upload::UploadError, files::*};
+use transpo2::files::*;
+use transpo2::upload_error::*;
 
 
 fn parse_err(bytes: Bytes) -> UploadError {
