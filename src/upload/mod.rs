@@ -37,6 +37,9 @@ use urlencoding::decode;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 
+mod accounting_writer;
+use accounting_writer::*;
+
 
 const EXPECTED_BOUNDARY_START: &'static str = "\r\n-----------------------";
 
