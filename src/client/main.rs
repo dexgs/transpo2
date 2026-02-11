@@ -18,7 +18,7 @@ fn main() {
 
 
 async fn async_main() {
-    match Settings::from_args() {
+    match Settings::from_args().await {
         Settings::Upload(settings) => upload::main(settings).await,
         Settings::Download(settings) => download::main(settings).await
     }
