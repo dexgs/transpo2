@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::fs;
-use std::io::Result;
+use std::fs::{self, File};
+use std::io::{Result, BufReader, BufRead, Error, ErrorKind};
 use std::sync::Arc;
 
 const EMPTY_STRING: String = String::new();
@@ -19,56 +19,83 @@ impl Translations {
     where P: AsRef<Path>
     {
         let path = path.as_ref();
-
-        let mut fallback_entries = HashMap::new();
-        let fallback_lang_path = path.join(fallback_lang);
-        read_dir_to_map(
-            &mut fallback_entries,
-            &fallback_lang_path,
-            &fallback_lang_path)?;
-        let fallback_entries = Arc::new(fallback_entries);
-
-        let mut translations = HashMap::new();
+        let mut translations = Vec::new();
+        let mut fallback = None;
 
         for entry in fs::read_dir(path)? {
             let entry = entry?;
-            let entry_type = entry.file_type()?;
-
-            if entry_type.is_dir() {
-                let lang = entry
-                    .path()
-                    .file_name()
-                    .expect("Getting translation directory name")
-                    .to_string_lossy()
-                    .trim()
-                    .to_string();
-
-                let name = Arc::new(fs::read_to_string(
-                        entry.path().join("name"))?.trim().to_string());
-
-                let mut entries = HashMap::new();
-                read_dir_to_map(&mut entries, entry.path(), entry.path())?;
-                let entries = Arc::new(entries);
-
-                let translation = Translation::new(name, entries, fallback_entries.clone());
-
-                translations.insert(lang, translation);
+            // Translations are stored in HTML files in the top level
+            // translations dir
+            let path = entry.path();
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if !file_name.ends_with(".html") {
+                continue;
             }
+
+            // The code (en, fr, etc.) is the file name without the extension
+            let code = file_name[..file_name.len() - ".html".len()].to_string();
+
+            let mut lines = BufReader::new(File::open(entry.path())?).lines();
+
+            // The human-readable name (English, French, etc.) is given as the
+            // first line of the translation file
+            let name = lines.next().unwrap_or(Ok(code.to_string()))?;
+
+            let mut key = String::new();
+            let mut buf = String::new();
+            let mut map = HashMap::new();
+
+            while let Some(line) = lines.next() {
+                let line = line?;
+
+                // Keys are given as HTML comments on a single line
+                if line.starts_with("<!--") && line.ends_with("-->") {
+                    let mut val = buf.clone();
+                    val.shrink_to_fit();
+                    map.insert(key, val);
+                    buf.clear();
+
+                    // The key is the first word in the comment
+                    let line = &line["<!--".len()..line.len() - "-->".len()].trim();
+                    key = line.split(' ').nth(0).unwrap_or("").to_string();
+                } else {
+                    buf.push_str(&line);
+                }
+            }
+
+            let map = Arc::new(map);
+            if code == fallback_lang {
+                fallback = Some(map.clone());
+            }
+            translations.push((code, Arc::new(name), map));
         }
+        
+        let fallback = match fallback {
+            Some(fallback) => fallback,
+            None => return Err(Error::new(ErrorKind::Other, format!("Fallback language was set to `{fallback_lang}`, but there was no `{fallback_lang}.html` file in the translations directory.")))
+        };
 
-        let mut lang_names = Vec::with_capacity(translations.len());
-
-        for (lang, translation) in translations.iter() {
-            lang_names.push((lang.to_string(), translation.name().to_string()))
-        }
-        lang_names.sort();
-
-
-        Ok(Self{
-            translations,
+        let mut this = Self {
+            translations: HashMap::with_capacity(translations.len()),
             fallback_lang: fallback_lang.to_string(),
-            lang_names
-        })
+            lang_names: Vec::with_capacity(translations.len()),
+        };
+
+        for (code, name, map) in translations {
+            let translation = Translation {
+                entries: map.clone(),
+                fallback_entries: fallback.clone()
+            };
+            this.translations.insert(code.clone(), translation);
+            this.lang_names.push((code, name.to_string()));
+        }
+
+        this.lang_names.sort();
+
+        Ok(this)
     }
 
     pub fn get(&self, lang: &str) -> Translation {
@@ -87,65 +114,15 @@ impl Translations {
 // The contents for a single translation
 #[derive(Clone)]
 pub struct Translation {
-    name: Arc<String>,
     entries: Arc<HashMap<String, String>>,
     fallback_entries: Arc<HashMap<String, String>>
 }
 
 impl Translation {
-    fn new(
-        name: Arc<String>,
-        entries: Arc<HashMap<String, String>>,
-        fallback_entries: Arc<HashMap<String, String>>) -> Self
-    {
-        Self {
-            name,
-            entries,
-            fallback_entries
-        }
-    }
-
-    fn name(&self) -> &String {
-        &self.name
-    }
-
     pub fn get(&self, key: &str) -> &str {
         self.entries
             .get(key).or(self.fallback_entries.get(key))
             .unwrap_or(EMPTY_STRING_REF)
             .trim()
     }
-}
-
-fn read_dir_to_map<P1, P2>(
-    entries: &mut HashMap<String, String>,
-    path: P1, path_prefix: P2) -> Result<()>
-where P1: AsRef<Path>,
-      P2: AsRef<Path>
-{
-    let path = path.as_ref();
-    let path_prefix = path_prefix.as_ref();
-
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let entry_type = entry.file_type()?;
-
-        if entry_type.is_dir() {
-            read_dir_to_map(entries, entry.path(), path_prefix)?;
-        } else if entry_type.is_file() {
-            let content = fs::read_to_string(entry.path())?;
-
-            let name = {
-                let mut entry_path = entry.path();
-                entry_path.set_extension("");
-                entry_path.strip_prefix(path_prefix)
-                    .expect("stripping path prefix")
-                    .display().to_string()
-            };
-
-            entries.insert(name, content);
-        }
-    }
-
-    Ok(())
 }
