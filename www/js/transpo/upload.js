@@ -1,11 +1,28 @@
 import { maxPlaintextSegmentSize, b64Encode, encrypt, genKey, encodeKey } from "./crypto.js";
-import { downloadZip } from "./client-zip/index.js";
+import { downloadZip, predictLength } from "./client-zip/index.js";
 
 const textEncoder = new TextEncoder("utf-8");
 
 const MAX_BUFFERED_AMOUNT = 10_000_000;
 const MAX_SEND_WAIT_MS = 100;
 
+
+function uploadSize(files) {
+    let plaintextSize = 0;
+
+    if (files.length > 1) {
+        plaintextSize = Number(predictLength(files));
+    } else if (files.length > 0) {
+        plaintextSize = files[0].size;
+    }
+
+    // Each chunk is 10KiB plus 18 bytes of overhead
+    let chunks = Math.ceil(plaintextSize / (1024 * 10 + 16 + 2));
+    // Add overhead from chunks plus the extra 2 bytes indicating EOF
+    let ciphertextSize = plaintextSize + chunks * (16 + 2) + 2;
+
+    return ciphertextSize;
+}
 
 function sizePrefix(size) {
     const buffer = new Uint8Array(2);
@@ -295,6 +312,7 @@ async function upload(
 
 if (typeof window != typeof undefined) {
     window.transpoUpload = upload;
+    window.transpoUploadSize = uploadSize;
 }
 
-export { upload };
+export { upload, uploadSize };

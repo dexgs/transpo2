@@ -1,5 +1,4 @@
 let filesToUpload = new Array();
-let uploadSize = 0;
 let maxUploadSize = 0;
 
 const fileArea = document.getElementById("file-area");
@@ -48,7 +47,6 @@ function addFilesToUpload(files) {
         }
     });
 
-    uploadSize = newUploadSize;
     filesToUpload = newList.files;
     fileInput.files = copyFileList(newList.files);
 }
@@ -85,6 +83,8 @@ function updateFileList(prevNumFiles) {
         fileList.appendChild(listItem);
     });
 
+    let uploadSize = transpoUploadSize(files);
+
     if (files.length > 0) {
         uploadSizeOutput.innerHTML = sizeString(uploadSize);
         fileAreaFooter.style.visibility = "";
@@ -94,7 +94,7 @@ function updateFileList(prevNumFiles) {
         fileAreaFooter.hidden = true;
     }
 
-    if (uploadSize * 1.05 > maxUploadSize) {
+    if (uploadSize > maxUploadSize) {
         if (!(fileArea.querySelector("div.max-upload-size-warning"))) {
             // Make sure the max upload size text is correct
             let maxUploadSizeWarning = maxUploadSizeWarningTemplate.content.cloneNode(true).firstElementChild;
@@ -117,8 +117,6 @@ function fileRemoveEvent(index) {
     let oldFiles = Array.from(filesToUpload);
     let newList = new DataTransfer();
 
-    uploadSize -= oldFiles[index].size;
-
     oldFiles.splice(index, 1);
     oldFiles.forEach(file => newList.items.add(file));
 
@@ -131,7 +129,6 @@ function fileRemoveEvent(index) {
 function clearAllFiles() {
     let newList = new DataTransfer();
 
-    uploadSize = 0;
     filesToUpload = newList.files;
     fileInput.files = copyFileList(newList.files);
 
