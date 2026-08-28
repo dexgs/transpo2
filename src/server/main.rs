@@ -37,16 +37,6 @@ use trillium_static::{files, crate_relative_path};
 
 const X_REAL_IP: &'static str = "X-Real-IP";
 
-const WS_UPLOAD_CONFIG: WebSocketConfig = WebSocketConfig {
-    #[allow(deprecated)]
-    max_send_queue: None, // This field no longer does anything
-    write_buffer_size: 128,
-    max_write_buffer_size: 256,
-    max_message_size: Some(FORM_READ_BUFFER_SIZE + 64),
-    max_frame_size: Some(FORM_READ_BUFFER_SIZE + 64),
-    accept_unmasked_frames: false
-};
-
 const ID_STRING_LENGTH: usize = base64_encode_length(ID_LENGTH);
 
 
@@ -174,6 +164,13 @@ fn trillium_main(
         db_pool: db_pool
     };
 
+    let ws_config = WebSocketConfig::default()
+        .write_buffer_size(128 * 1024)
+        .max_write_buffer_size(256 * 1024)
+        .max_message_size(Some(FORM_READ_BUFFER_SIZE + 64))
+        .max_frame_size(Some(FORM_READ_BUFFER_SIZE + 64))
+        .accept_unmasked_frames(false);
+
     let router = Router::new()
         .get("/", (state(s.clone()), move |mut conn: Conn| { async move {
             let (config, translations, translation, lang) = get_config(&conn);
@@ -213,7 +210,7 @@ fn trillium_main(
             let quota = get_quota(state.quotas, conn.headers());
 
             drop(upload::handle_websocket(conn, state.config, state.db_pool, quota, state.storage_limit).await)
-        }}).with_protocol_config(WS_UPLOAD_CONFIG)))
+        }}).with_protocol_config(ws_config)))
         .get("/:file_id", (state(s.clone()), move |conn: Conn| { async move {
             let file_id = conn.param("file_id").unwrap().to_owned();
             let (config, _, translation, _) = get_config(&conn);

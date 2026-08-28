@@ -28,7 +28,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use trillium::Conn;
 use trillium_websockets::{
     WebSocketConn, Message,
-    tungstenite::protocol::frame::coding::CloseCode};
+    tungstenite::{Bytes, protocol::frame::coding::CloseCode}};
 use trillium_askama::AskamaConnExt;
 
 use smol::prelude::*;
@@ -330,12 +330,13 @@ pub async fn handle_websocket(
                         drop(conn.close().await);
                         return Ok(()); // return early
                     } else {
-                        drop(conn.send(Message::Binary(vec![UploadError::Other as u8])).await);
+                        let msg = Bytes::from_static(&[UploadError::Other as u8]);
+                        drop(conn.send(Message::Binary(msg)).await);
                     }
                 },
                 Err(e) => {
-                    let code = e as u8;
-                    drop(conn.send(Message::Binary(vec![code])).await);
+                    let msg = Bytes::copy_from_slice(&[e as u8]);
+                    drop(conn.send(Message::Binary(msg)).await);
                 }
             }
         }
@@ -680,7 +681,7 @@ pub async fn handle_post(
         0 => u64::MAX,
         n => n as u64
     };
-    let req_body = conn.request_body().await.with_max_len(max_len);
+    let req_body = conn.request_body().with_max_len(max_len);
     let timeout_duration = time::Duration::from_millis(
         config.read_timeout_milliseconds as u64);
     let mut parser = UploadFormParser::new(
