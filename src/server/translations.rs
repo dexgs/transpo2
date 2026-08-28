@@ -47,6 +47,7 @@ impl Translations {
             let mut key = String::new();
             let mut buf = String::new();
             let mut map = HashMap::new();
+            let mut is_first_line = true;
 
             while let Some(line) = lines.next() {
                 let line = line?;
@@ -61,7 +62,13 @@ impl Translations {
                     // The key is the first word in the comment
                     let line = &line["<!--".len()..line.len() - "-->".len()].trim();
                     key = line.split(' ').nth(0).unwrap_or("").to_string();
+                    is_first_line = true;
                 } else {
+                    if is_first_line {
+                        is_first_line = false;
+                    } else {
+                        buf.push_str(" ");
+                    }
                     buf.push_str(&line);
                 }
             }
